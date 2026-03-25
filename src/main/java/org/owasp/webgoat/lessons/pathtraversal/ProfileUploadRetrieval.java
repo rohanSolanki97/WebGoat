@@ -97,6 +97,10 @@ public class ProfileUploadRetrieval implements AssignmentEndpoint {
     }
     try {
       var id = request.getParameter("id");
+      if (id != null && (id.contains("..") || id.contains("/") || id.contains("\\") || new File(id).isAbsolute())) {
+          // Optionally log the attempted malicious input and reject the request
+          throw new IllegalArgumentException("Invalid file name");
+      }
       var catPicture =
           new File(catPicturesDirectory, (id == null ? RandomUtils.nextInt(1, 11) : id) + ".jpg");
 
