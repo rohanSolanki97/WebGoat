@@ -87,6 +87,10 @@ public class FileServer {
   public ModelAndView getFiles(
       HttpServletRequest request, Authentication authentication, TimeZone timezone) {
     String username = (null != authentication) ? authentication.getName() : "anonymous";
+    // Validate username to prevent directory traversal
+    if (!isValidUsername(username)) {
+         throw new IllegalArgumentException("Invalid username provided");
+    }
     File destinationDir = new File(fileLocation, username);
 
     ModelAndView modelAndView = new ModelAndView();
@@ -126,4 +130,10 @@ public class FileServer {
       return "unknown";
     }
   }
+    private boolean isValidUsername(String username) {
+        // Disallow '..', '/', '\\', and absolute path indicators
+        if (username == null || username.isEmpty()) return false;
+        if (username.contains("..") || username.contains("/") || username.contains("\\")) return false;
+        return username.matches("^[a-zA-Z0-9_-]+$");
+    }
 }
