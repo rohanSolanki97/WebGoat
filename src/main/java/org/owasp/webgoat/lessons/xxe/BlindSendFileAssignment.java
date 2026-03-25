@@ -53,7 +53,8 @@ public class BlindSendFileAssignment implements AssignmentEndpoint, Initializabl
   private void createSecretFileWithRandomContents(WebGoatUser user) {
     var fileContents = "WebGoat 8.0 rocks... (" + randomAlphabetic(10) + ")";
     userToFileContents.put(user, fileContents);
-    File targetDirectory = new File(webGoatHomeDirectory, "/XXE/" + user.getUsername());
+    String safeUserId = getSafeUserIdentifier(user);
+    File targetDirectory = new File(webGoatHomeDirectory, "/XXE/" + safeUserId);
     if (!targetDirectory.exists()) {
       targetDirectory.mkdirs();
     }
@@ -62,6 +63,11 @@ public class BlindSendFileAssignment implements AssignmentEndpoint, Initializabl
     } catch (IOException e) {
       log.error("Unable to write 'secret.txt' to '{}", targetDirectory);
     }
+  }
+  private String getSafeUserIdentifier(WebGoatUser user) {
+    // Use an internal safe identifier instead of the direct username to prevent path traversal
+    // This example uses the user's hash code in hex representation as a safe identifier
+    return Integer.toHexString(user.hashCode());
   }
 
   @PostMapping(path = "xxe/blind", consumes = ALL_VALUE, produces = APPLICATION_JSON_VALUE)
