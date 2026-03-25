@@ -4,6 +4,9 @@
  */
 package org.owasp.webgoat.lessons.pathtraversal;
 
+import org.apache.commons.io.FilenameUtils;
+import java.util.Arrays;
+
 import static org.owasp.webgoat.container.assignments.AttackResultBuilder.failed;
 import static org.owasp.webgoat.container.assignments.AttackResultBuilder.success;
 
@@ -105,16 +108,22 @@ public class ProfileUploadRetrieval implements AssignmentEndpoint {
             .contentType(MediaType.parseMediaType(MediaType.IMAGE_JPEG_VALUE))
             .body(FileCopyUtils.copyToByteArray(catPicture));
       }
+      String sanitizedFileName = FilenameUtils.getName(catPicture.getName());
+      if (sanitizedFileName.contains("..") || sanitizedFileName.contains("/") || sanitizedFileName.contains("\\") || new File(sanitizedFileName).isAbsolute()) {
+          throw new IllegalArgumentException("Invalid file name.");
+      }
       if (catPicture.exists()) {
         return ResponseEntity.ok()
             .contentType(MediaType.parseMediaType(MediaType.IMAGE_JPEG_VALUE))
-            .location(new URI("/PathTraversal/random-picture?id=" + catPicture.getName()))
+            .location(new URI("/PathTraversal/random-picture?id=" + sanitizedFileName))
             .body(Base64.getEncoder().encode(FileCopyUtils.copyToByteArray(catPicture)));
       }
       return ResponseEntity.status(HttpStatus.NOT_FOUND)
-          .location(new URI("/PathTraversal/random-picture?id=" + catPicture.getName()))
+          .location(new URI("/PathTraversal/random-picture?id=" + sanitizedFileName))
           .body(
-              StringUtils.arrayToCommaDelimitedString(catPicture.getParentFile().listFiles())
+              StringUtils.arrayToCommaDelimitedString(Arrays.stream(catPicture.getParentFile().listFiles())
+                      .map(f -> FilenameUtils.getName(f.getName()))
+                      .toArray(String[]::new))
                   .getBytes());
     } catch (IOException | URISyntaxException e) {
       log.error("Image not found", e);
