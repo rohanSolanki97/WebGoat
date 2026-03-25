@@ -4,6 +4,8 @@
  */
 package org.owasp.webgoat.webwolf;
 
+import java.util.regex.Pattern;
+
 import static java.util.Comparator.comparing;
 import static org.springframework.http.MediaType.ALL_VALUE;
 
@@ -67,12 +69,20 @@ public class FileServer {
       @RequestParam("file") MultipartFile multipartFile, Authentication authentication)
       throws IOException {
     var username = authentication.getName();
+    // Validate username
+    if (!Pattern.matches("^[a-zA-Z0-9_-]+$", username)) {
+        throw new IllegalArgumentException("Invalid username provided");
+    }
     var destinationDir = new File(fileLocation, username);
     destinationDir.mkdirs();
     // DO NOT use multipartFile.transferTo(), see
     // https://stackoverflow.com/questions/60336929/java-nio-file-nosuchfileexception-when-file-transferto-is-called
     try (InputStream is = multipartFile.getInputStream()) {
-      var destinationFile = destinationDir.toPath().resolve(multipartFile.getOriginalFilename());
+      String originalFilename = multipartFile.getOriginalFilename();
+      if (originalFilename == null || originalFilename.isEmpty() || originalFilename.contains("..") || originalFilename.contains("/") || originalFilename.contains("\\")) {
+          throw new IllegalArgumentException("Invalid file name");
+      }
+      var destinationFile = destinationDir.toPath().resolve(originalFilename);
       Files.deleteIfExists(destinationFile);
       Files.copy(is, destinationFile);
     }
