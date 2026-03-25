@@ -100,6 +100,11 @@ public class ProfileUploadBase implements AssignmentEndpoint {
   }
 
   protected byte[] getProfilePictureAsBase64(String username) {
+    if (username.contains("..") || username.contains("/") || username.contains("\\")) {
+            throw new IllegalArgumentException("Invalid username: directory traversal characters are not allowed.");
+        }
+
+    // Username is validated to disallow directory traversal sequences. Developers may replace this placeholder validation if needed.
     var profilePictureDirectory = new File(this.webGoatHomeDirectory, "/PathTraversal/" + username);
     var profileDirectoryFiles = profilePictureDirectory.listFiles();
 
