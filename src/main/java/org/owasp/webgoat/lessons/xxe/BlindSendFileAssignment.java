@@ -50,10 +50,17 @@ public class BlindSendFileAssignment implements AssignmentEndpoint, Initializabl
     this.comments = comments;
   }
 
-  private void createSecretFileWithRandomContents(WebGoatUser user) {
+  private static String sanitizePathSegment(String segment) {
+        if (segment == null || !segment.matches("^[a-zA-Z0-9_]+$")) {
+            throw new IllegalArgumentException("Invalid path segment: " + segment);
+        }
+        return segment;
+    }
+
+    private void createSecretFileWithRandomContents(WebGoatUser user) {
     var fileContents = "WebGoat 8.0 rocks... (" + randomAlphabetic(10) + ")";
     userToFileContents.put(user, fileContents);
-    File targetDirectory = new File(webGoatHomeDirectory, "/XXE/" + user.getUsername());
+    File targetDirectory = new File(webGoatHomeDirectory, "/XXE/" + sanitizePathSegment(user.getUsername()));
     if (!targetDirectory.exists()) {
       targetDirectory.mkdirs();
     }
