@@ -67,12 +67,22 @@ public class ProfileUploadBase implements AssignmentEndpoint {
 
   @SneakyThrows
   protected File cleanupAndCreateDirectoryForUser(String username) {
-    var uploadDirectory = new File(this.webGoatHomeDirectory, "/PathTraversal/" + username);
+    // Validate and sanitize user input to remove dangerous characters
+    String cleanUsername = sanitizeUsername(username);
+    var uploadDirectory = new File(this.webGoatHomeDirectory, "/PathTraversal/" + cleanUsername);
     if (uploadDirectory.exists()) {
       FileSystemUtils.deleteRecursively(uploadDirectory);
     }
     Files.createDirectories(uploadDirectory.toPath());
     return uploadDirectory;
+  }
+
+  private String sanitizeUsername(String username) {
+      // Use a regular expression to allow only safe characters; adjust the regex as needed
+      if (username == null || !username.matches("^[a-zA-Z0-9_-]+$")) {
+          throw new IllegalArgumentException("Invalid username provided");
+      }
+      return username;
   }
 
   private boolean attemptWasMade(File expectedUploadDirectory, File uploadedFile)
