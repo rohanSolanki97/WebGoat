@@ -14,6 +14,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
+import java.security.SecurityException;
 import java.util.Arrays;
 import java.util.Enumeration;
 import java.util.zip.ZipEntry;
@@ -69,7 +70,8 @@ public class ProfileZipSlip extends ProfileUploadBase {
     var currentImage = getProfilePictureAsBase64(username);
 
     try {
-      var uploadedZipFile = tmpZipDirectory.resolve(file.getOriginalFilename());
+      String safeFilename = sanitizeFilename(file.getOriginalFilename()); // TODO: Replace with your project's naming policy if needed
+      var uploadedZipFile = tmpZipDirectory.resolve(safeFilename);
       FileCopyUtils.copy(file.getBytes(), uploadedZipFile.toFile());
 
       ZipFile zip = new ZipFile(uploadedZipFile.toFile());
@@ -77,6 +79,9 @@ public class ProfileZipSlip extends ProfileUploadBase {
       while (entries.hasMoreElements()) {
         ZipEntry e = entries.nextElement();
         File f = new File(tmpZipDirectory.toFile(), e.getName());
+        if (!f.getCanonicalPath().startsWith(tmpZipDirectory.toFile().getCanonicalPath())) {
+            throw new SecurityException("Invalid entry: " + e.getName());
+        }
         InputStream is = zip.getInputStream(e);
         Files.copy(is, f.toPath(), StandardCopyOption.REPLACE_EXISTING);
       }
@@ -92,6 +97,13 @@ public class ProfileZipSlip extends ProfileUploadBase {
       return failed(this).output("path-traversal-zip-slip.extracted").build();
     }
     return success(this).output("path-traversal-zip-slip.extracted").build();
+  }
+
+    private String sanitizeFilename(String filename) {
+      if (filename == null || filename.isEmpty() || filename.contains("..") || filename.startsWith("/") || filename.startsWith("\\")) {
+          throw new IllegalArgumentException("Invalid file name");
+      }
+      return filename;
   }
 
   @GetMapping("/PathTraversal/zip-slip/")
