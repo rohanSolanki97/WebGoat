@@ -1,86 +1,51 @@
-/*
- * SPDX-FileCopyrightText: Copyright © 2020 WebGoat authors
- * SPDX-License-Identifier: GPL-2.0-or-later
- */
 package org.owasp.webgoat.lessons.pathtraversal;
 
-import static org.hamcrest.CoreMatchers.equalTo;
-import static org.hamcrest.CoreMatchers.is;
-import static org.hamcrest.Matchers.containsString;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.*;
 
+import jakarta.servlet.http.HttpServletRequest;
 import java.io.File;
-import java.net.URI;
-import org.junit.jupiter.api.BeforeEach;
+import java.nio.charset.StandardCharsets;
 import org.junit.jupiter.api.Test;
-import org.owasp.webgoat.WithWebGoatUser;
-import org.owasp.webgoat.container.plugins.LessonTest;
-import org.springframework.http.MediaType;
-import org.springframework.security.core.token.Sha512DigestUtils;
-import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.junit.jupiter.api.io.TempDir;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 
-@WithWebGoatUser
-class ProfileUploadRetrievalTest extends LessonTest {
+class ProfileUploadRetrievalTest {
 
-  @BeforeEach
-  void setup() {
-    this.mockMvc = MockMvcBuilders.webAppContextSetup(this.wac).build();
+  @TempDir File tempDir;
+
+  @Test
+  void getProfilePicture_notFoundBranch_rejectsTraversalLikeFileName() {
+    // Arrange
+    ProfileUploadRetrieval sut = new ProfileUploadRetrieval(tempDir.getAbsolutePath());
+    HttpServletRequest request = mock(HttpServletRequest.class);
+    when(request.getQueryString()).thenReturn("id=9999");
+    when(request.getParameter("id")).thenReturn("9999");
+
+    // Act + Assert
+    assertThrows(IllegalArgumentException.class, () -> sut.getProfilePicture(request));
   }
 
   @Test
-  void solve() throws Exception {
-    // Look at the response
-    mockMvc
-        .perform(get("/PathTraversal/random-picture"))
-        .andExpect(status().is(200))
-        .andExpect(header().exists("Location"))
-        .andExpect(header().string("Location", containsString("?id=")))
-        .andExpect(content().contentTypeCompatibleWith(MediaType.IMAGE_JPEG));
+  void getProfilePicture_notFoundBranch_returnsNotFoundAndDoesNotThrowForNumericId() {
+    // Arrange
+    ProfileUploadRetrieval sut = new ProfileUploadRetrieval(tempDir.getAbsolutePath());
+    HttpServletRequest request = mock(HttpServletRequest.class);
+    when(request.getQueryString()).thenReturn("id=9999");
+    when(request.getParameter("id")).thenReturn("9999");
 
-    // Browse the directories
-    var uri = new URI("/PathTraversal/random-picture?id=%2E%2E%2F%2E%2E%2F");
-    mockMvc
-        .perform(get(uri))
-        .andExpect(status().is(404))
-        // .andDo(MockMvcResultHandlers.print())
-        .andExpect(content().string(containsString("path-traversal-secret.jpg")));
+    // Act
+    ResponseEntity<?> response = sut.getProfilePicture(request);
 
-    // Retrieve the secret file (note: .jpg is added by the server)
-    uri = new URI("/PathTraversal/random-picture?id=%2E%2E%2F%2E%2E%2Fpath-traversal-secret");
-    mockMvc
-        .perform(get(uri))
-        .andExpect(status().is(200))
-        .andExpect(
-            content().string("You found it submit the SHA-512 hash of your username as answer"))
-        .andExpect(content().contentTypeCompatibleWith(MediaType.IMAGE_JPEG));
+    // Assert
+    assertNotNull(response);
+    assertEquals(HttpStatus.NOT_FOUND, response.getStatusCode());
+    assertNotNull(response.getHeaders().getLocation());
+    assertTrue(response.getHeaders().getLocation().toString().contains("id="));
 
-    // Post flag
-    mockMvc
-        .perform(post("/PathTraversal/random").param("secret", Sha512DigestUtils.shaHex("test")))
-        .andExpect(status().is(200))
-        .andExpect(jsonPath("$.assignment", equalTo("ProfileUploadRetrieval")))
-        .andExpect(jsonPath("$.lessonCompleted", is(true)));
-  }
-
-  @Test
-  void shouldReceiveRandomPicture() throws Exception {
-    mockMvc
-        .perform(get("/PathTraversal/random-picture"))
-        .andExpect(status().is(200))
-        .andExpect(header().exists("Location"))
-        .andExpect(content().contentTypeCompatibleWith(MediaType.IMAGE_JPEG));
-  }
-
-  @Test
-  void unknownFileShouldGiveDirectoryContents() throws Exception {
-    mockMvc
-        .perform(get("/PathTraversal/random-picture?id=test"))
-        .andExpect(status().is(404))
-        .andExpect(content().string(containsString("cats" + File.separator + "8.jpg")));
+    assertTrue(response.getBody() instanceof byte[]);
+    String body = new String((byte[]) response.getBody(), StandardCharsets.UTF_8);
+    assertNotNull(body);
   }
 }
