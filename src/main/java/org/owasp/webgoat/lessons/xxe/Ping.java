@@ -27,9 +27,11 @@ public class Ping {
       @RequestHeader("User-Agent") String userAgent,
       @RequestParam(required = false) String text,
       @CurrentUsername String username) {
+    // Sanitize 'username' to allow only alphanumeric characters; adjust regex as needed
+    String safeUsername = username.replaceAll("[^a-zA-Z0-9]", "");
     String logLine = String.format("%s %s %s", "GET", userAgent, text);
     log.debug(logLine);
-    File logFile = new File(webGoatHomeDirectory, "/XXE/log" + username + ".txt");
+    File logFile = new File(webGoatHomeDirectory, "/XXE/log" + safeUsername + ".txt");
     try {
       try (PrintWriter pw = new PrintWriter(logFile)) {
         pw.println(logLine);
