@@ -100,6 +100,10 @@ public class ProfileUploadBase implements AssignmentEndpoint {
   }
 
   protected byte[] getProfilePictureAsBase64(String username) {
+    // Validate username to prevent path traversal vulnerabilities
+        if (!username.matches("^[A-Za-z0-9_-]+$")) {
+            throw new IllegalArgumentException("Invalid username supplied"); // TODO: Replace with appropriate error handling if needed
+        }
     var profilePictureDirectory = new File(this.webGoatHomeDirectory, "/PathTraversal/" + username);
     var profileDirectoryFiles = profilePictureDirectory.listFiles();
 
