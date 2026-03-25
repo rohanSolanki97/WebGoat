@@ -29,7 +29,7 @@ public class Ping {
       @CurrentUsername String username) {
     String logLine = String.format("%s %s %s", "GET", userAgent, text);
     log.debug(logLine);
-    File logFile = new File(webGoatHomeDirectory, "/XXE/log" + username + ".txt");
+    File logFile = new File(webGoatHomeDirectory, "/XXE/log.txt"); // Username is intentionally not used to construct the file path to prevent path traversal vulnerabilities
     try {
       try (PrintWriter pw = new PrintWriter(logFile)) {
         pw.println(logLine);
