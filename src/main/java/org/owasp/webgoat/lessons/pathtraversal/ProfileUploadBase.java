@@ -48,12 +48,27 @@ public class ProfileUploadBase implements AssignmentEndpoint {
     File uploadDirectory = cleanupAndCreateDirectoryForUser(username);
 
     try {
-      var uploadedFile = new File(uploadDirectory, fullName);
-      uploadedFile.createNewFile();
-      FileCopyUtils.copy(file.getBytes(), uploadedFile);
+      if (fullName.contains("..") || new File(fullName).isAbsolute()) {
+          return failed(this).feedback("path-traversal-invalid-path").build();
+      }
+            // Create the intended file object using the user-supplied name
+      File intendedFile = new File(uploadDirectory, fullName);
+      
+      // Normalize the paths by retrieving the canonical file
+      File canonicalFile = intendedFile.getCanonicalFile();
+      String canonicalUploadDir = uploadDirectory.getCanonicalPath();
+      
+      // Verify that the canonical file path starts with the upload directory's canonical path
+      if (!canonicalFile.getPath().startsWith(canonicalUploadDir + File.separator)) {
+          return failed(this).feedback("path-traversal-invalid-path").build();
+      }
+      
+      // Use the validated and normalized file path for file operations
+      canonicalFile.createNewFile();
+      FileCopyUtils.copy(file.getBytes(), canonicalFile);
 
-      if (attemptWasMade(uploadDirectory, uploadedFile)) {
-        return solvedIt(uploadedFile);
+      if (attemptWasMade(uploadDirectory, canonicalFile)) {
+        return solvedIt(canonicalFile);
       }
       return informationMessage(this)
           .feedback("path-traversal-profile-updated")
