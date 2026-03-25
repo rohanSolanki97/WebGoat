@@ -10,6 +10,7 @@ import static org.owasp.webgoat.container.assignments.AttackResultBuilder.failed
 import static org.owasp.webgoat.container.assignments.AttackResultBuilder.success;
 
 import java.sql.*;
+import java.sql.PreparedStatement;
 import java.text.SimpleDateFormat;
 import java.util.Calendar;
 import org.owasp.webgoat.container.LessonDataSource;
@@ -47,19 +48,15 @@ public class SqlInjectionLesson8 implements AssignmentEndpoint {
   protected AttackResult injectableQueryConfidentiality(String name, String auth_tan) {
     StringBuilder output = new StringBuilder();
     String query =
-        "SELECT * FROM employees WHERE last_name = '"
-            + name
-            + "' AND auth_tan = '"
-            + auth_tan
-            + "'";
+        "SELECT * FROM employees WHERE last_name = ? AND auth_tan = ?";
 
     try (Connection connection = dataSource.getConnection()) {
       try {
-        Statement statement =
-            connection.createStatement(
-                ResultSet.TYPE_SCROLL_INSENSITIVE, ResultSet.CONCUR_UPDATABLE);
+        PreparedStatement ps = connection.prepareStatement(query, ResultSet.TYPE_SCROLL_INSENSITIVE, ResultSet.CONCUR_UPDATABLE);
+        ps.setString(1, name);
+          ps.setString(2, auth_tan);
         log(connection, query);
-        ResultSet results = statement.executeQuery(query);
+        ResultSet results = ps.executeQuery();
 
         if (results.getStatement() != null) {
           if (results.first()) {
