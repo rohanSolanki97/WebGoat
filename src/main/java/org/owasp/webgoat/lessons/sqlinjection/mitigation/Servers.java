@@ -6,6 +6,7 @@ package org.owasp.webgoat.lessons.sqlinjection.mitigation;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Arrays;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
@@ -43,14 +44,15 @@ public class Servers {
   @GetMapping(produces = MediaType.APPLICATION_JSON_VALUE)
   @ResponseBody
   public List<Server> sort(@RequestParam String column) throws Exception {
+        List<String> allowedColumns = Arrays.asList("id", "hostname", "ip", "mac", "status", "description");
+        if (!allowedColumns.contains(column)) {
+            throw new IllegalArgumentException("Invalid column name provided");
+        }
     List<Server> servers = new ArrayList<>();
 
     try (var connection = dataSource.getConnection()) {
-      try (var statement =
-          connection.prepareStatement(
-              "select id, hostname, ip, mac, status, description from SERVERS where status <> 'out"
-                  + " of order' order by "
-                  + column)) {
+      String sql = "select id, hostname, ip, mac, status, description from SERVERS where status <> 'out of order' order by " + column;
+      try (var statement = connection.prepareStatement(sql)) {
         try (var rs = statement.executeQuery()) {
           while (rs.next()) {
             Server server =
