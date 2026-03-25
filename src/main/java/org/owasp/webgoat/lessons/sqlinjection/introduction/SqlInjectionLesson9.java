@@ -13,6 +13,7 @@ import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.sql.PreparedStatement;
 import org.owasp.webgoat.container.LessonDataSource;
 import org.owasp.webgoat.container.assignments.AssignmentEndpoint;
 import org.owasp.webgoat.container.assignments.AssignmentHints;
@@ -47,12 +48,7 @@ public class SqlInjectionLesson9 implements AssignmentEndpoint {
 
   protected AttackResult injectableQueryIntegrity(String name, String auth_tan) {
     StringBuilder output = new StringBuilder();
-    String queryInjection =
-        "SELECT * FROM employees WHERE last_name = '"
-            + name
-            + "' AND auth_tan = '"
-            + auth_tan
-            + "'";
+    String queryInjection = "SELECT * FROM employees WHERE last_name = ? AND auth_tan = ?";
     try (Connection connection = dataSource.getConnection()) {
       // V2019_09_26_7__employees.sql
       int oldMaxSalary = this.getMaxSalary(connection);
@@ -60,9 +56,12 @@ public class SqlInjectionLesson9 implements AssignmentEndpoint {
       // begin transaction
       connection.setAutoCommit(false);
       // do injectable query
-      Statement statement = connection.createStatement(TYPE_SCROLL_SENSITIVE, CONCUR_UPDATABLE);
-      SqlInjectionLesson8.log(connection, queryInjection);
-      statement.execute(queryInjection);
+      PreparedStatement preparedStatement = connection.prepareStatement(queryInjection);
+      // TODO: Bind the necessary user-controlled parameters to the query. For example, if queryInjection includes a placeholder '?', add a binding such as preparedStatement.setString(1, userInputValue); // Replace 'userInputValue' with the actual variable holding the user input
+      preparedStatement.setString(1, name);
+      preparedStatement.setString(2, auth_tan);
+      // Optionally log the parameterized query if needed
+      preparedStatement.execute();
       // check new sum of salaries other employees and new salaries of John
       int newJohnSalary = this.getJohnSalary(connection);
       int newSumSalariesOfOtherEmployees = this.getSumSalariesOfOtherEmployees(connection);
