@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 package org.owasp.webgoat.webwolf;
+import java.io.File;
 
 import static java.util.Comparator.comparing;
 import static org.springframework.http.MediaType.ALL_VALUE;
@@ -38,6 +39,14 @@ import org.springframework.web.servlet.view.RedirectView;
 @Slf4j
 public class FileServer {
 
+  // TODO: Developer should adjust the regex as needed for application policies
+  private boolean isValidUsername(String username) {
+      if (username == null) return false;
+      // Disallow '..' and path separators
+      return !username.contains("..") && !username.contains(File.separator) && !new File(username).isAbsolute();
+  }
+
+
   private static final DateTimeFormatter dateTimeFormatter =
       DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
@@ -67,6 +76,9 @@ public class FileServer {
       @RequestParam("file") MultipartFile multipartFile, Authentication authentication)
       throws IOException {
     var username = authentication.getName();
+    if (!isValidUsername(username)) {
+      throw new IllegalArgumentException("Invalid username provided");
+    }
     var destinationDir = new File(fileLocation, username);
     destinationDir.mkdirs();
     // DO NOT use multipartFile.transferTo(), see
@@ -87,6 +99,9 @@ public class FileServer {
   public ModelAndView getFiles(
       HttpServletRequest request, Authentication authentication, TimeZone timezone) {
     String username = (null != authentication) ? authentication.getName() : "anonymous";
+    if (!isValidUsername(username)) {
+      throw new IllegalArgumentException("Invalid username provided");
+    }
     File destinationDir = new File(fileLocation, username);
 
     ModelAndView modelAndView = new ModelAndView();
