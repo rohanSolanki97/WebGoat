@@ -4,6 +4,8 @@
  */
 package org.owasp.webgoat.lessons.pathtraversal;
 
+import org.apache.commons.codec.digest.DigestUtils;
+
 import static org.owasp.webgoat.container.assignments.AttackResultBuilder.failed;
 import static org.owasp.webgoat.container.assignments.AttackResultBuilder.informationMessage;
 import static org.owasp.webgoat.container.assignments.AttackResultBuilder.success;
@@ -44,6 +46,9 @@ public class ProfileUploadBase implements AssignmentEndpoint {
     if (StringUtils.isEmpty(fullName)) {
       return failed(this).feedback("path-traversal-profile-empty-name").build();
     }
+    if (fullName.contains("..") || fullName.contains("/") || fullName.contains("\\")) {
+      return failed(this).feedback("path-traversal-invalid-file-name").build();
+    }
 
     File uploadDirectory = cleanupAndCreateDirectoryForUser(username);
 
@@ -67,7 +72,8 @@ public class ProfileUploadBase implements AssignmentEndpoint {
 
   @SneakyThrows
   protected File cleanupAndCreateDirectoryForUser(String username) {
-    var uploadDirectory = new File(this.webGoatHomeDirectory, "/PathTraversal/" + username);
+    String safeUserDirectory = DigestUtils.sha256Hex(username);
+    var uploadDirectory = new File(this.webGoatHomeDirectory, "/PathTraversal/" + safeUserDirectory);
     if (uploadDirectory.exists()) {
       FileSystemUtils.deleteRecursively(uploadDirectory);
     }
@@ -100,7 +106,8 @@ public class ProfileUploadBase implements AssignmentEndpoint {
   }
 
   protected byte[] getProfilePictureAsBase64(String username) {
-    var profilePictureDirectory = new File(this.webGoatHomeDirectory, "/PathTraversal/" + username);
+    String safeUserDirectory = DigestUtils.sha256Hex(username);
+    var profilePictureDirectory = new File(this.webGoatHomeDirectory, "/PathTraversal/" + safeUserDirectory);
     var profileDirectoryFiles = profilePictureDirectory.listFiles();
 
     if (profileDirectoryFiles != null && profileDirectoryFiles.length > 0) {
