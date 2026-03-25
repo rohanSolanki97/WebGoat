@@ -9,6 +9,7 @@ import static org.springframework.http.MediaType.ALL_VALUE;
 
 import jakarta.servlet.http.HttpServletRequest;
 import java.io.File;
+import java.util.regex.Pattern;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
@@ -87,6 +88,10 @@ public class FileServer {
   public ModelAndView getFiles(
       HttpServletRequest request, Authentication authentication, TimeZone timezone) {
     String username = (null != authentication) ? authentication.getName() : "anonymous";
+    // Validate username to allow only safe characters (alphanumeric and underscore)
+    if (!Pattern.matches("^[a-zA-Z0-9_]+$", username)) {
+        throw new IllegalArgumentException("Invalid characters in username.");
+    }
     File destinationDir = new File(fileLocation, username);
 
     ModelAndView modelAndView = new ModelAndView();
