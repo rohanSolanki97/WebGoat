@@ -4,6 +4,8 @@
  */
 package org.owasp.webgoat.webwolf;
 
+import java.nio.file.Paths;
+
 import static java.util.Comparator.comparing;
 import static org.springframework.http.MediaType.ALL_VALUE;
 
@@ -72,11 +74,12 @@ public class FileServer {
     // DO NOT use multipartFile.transferTo(), see
     // https://stackoverflow.com/questions/60336929/java-nio-file-nosuchfileexception-when-file-transferto-is-called
     try (InputStream is = multipartFile.getInputStream()) {
-      var destinationFile = destinationDir.toPath().resolve(multipartFile.getOriginalFilename());
+      String safeFilename = sanitizeFilename(multipartFile.getOriginalFilename());
+      var destinationFile = destinationDir.toPath().resolve(safeFilename);
       Files.deleteIfExists(destinationFile);
       Files.copy(is, destinationFile);
     }
-    log.debug("File saved to {}", new File(destinationDir, multipartFile.getOriginalFilename()));
+    log.debug("File saved to {}", new File(destinationDir, safeFilename));
 
     return new ModelAndView(
         new RedirectView("files", true),
@@ -126,4 +129,15 @@ public class FileServer {
       return "unknown";
     }
   }
+  private String sanitizeFilename(String originalFilename) {
+      if (originalFilename == null) {
+          throw new IllegalArgumentException("Filename cannot be null");
+      }
+      String filename = Paths.get(originalFilename).getFileName().toString();
+      if (filename.contains("..") || filename.contains("/") || filename.contains("\\")) {
+          throw new IllegalArgumentException("Invalid filename");
+      }
+      return filename;
+  }
+
 }
