@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 package org.owasp.webgoat.lessons.pathtraversal;
+import java.util.UUID;
 
 import static org.owasp.webgoat.container.assignments.AttackResultBuilder.failed;
 import static org.owasp.webgoat.container.assignments.AttackResultBuilder.informationMessage;
@@ -48,7 +49,16 @@ public class ProfileUploadBase implements AssignmentEndpoint {
     File uploadDirectory = cleanupAndCreateDirectoryForUser(username);
 
     try {
-      var uploadedFile = new File(uploadDirectory, fullName);
+      String safeFileName = UUID.randomUUID().toString(); // Optionally append a validated file extension if needed
+      File uploadedFile = new File(uploadDirectory, safeFileName);
+      
+      // Verify the file remains within the intended directory
+      String canonicalUploadDir = uploadDirectory.getCanonicalPath();
+      String canonicalFile = uploadedFile.getCanonicalPath();
+      if (!canonicalFile.startsWith(canonicalUploadDir)) {
+          throw new SecurityException("Invalid file path detected.");
+      }
+      
       uploadedFile.createNewFile();
       FileCopyUtils.copy(file.getBytes(), uploadedFile);
 
