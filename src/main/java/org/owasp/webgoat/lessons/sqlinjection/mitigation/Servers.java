@@ -40,17 +40,24 @@ public class Servers {
     this.dataSource = dataSource;
   }
 
+  // Add allowed columns to validate input
+  private boolean isValidColumn(String column) {
+      return "id".equals(column) || "hostname".equals(column) || "ip".equals(column) || "mac".equals(column) || "status".equals(column) || "description".equals(column);
+  }
+
   @GetMapping(produces = MediaType.APPLICATION_JSON_VALUE)
   @ResponseBody
   public List<Server> sort(@RequestParam String column) throws Exception {
+    if (!isValidColumn(column)) {
+        throw new IllegalArgumentException("Invalid column name");
+    }
     List<Server> servers = new ArrayList<>();
 
     try (var connection = dataSource.getConnection()) {
       try (var statement =
-          connection.prepareStatement(
-              "select id, hostname, ip, mac, status, description from SERVERS where status <> 'out"
-                  + " of order' order by "
-                  + column)) {
+          String sql = "select id, hostname, ip, mac, status, description from SERVERS where status <> 'out of order' order by " + column;
+      try (var statement = connection.prepareStatement(sql)) {
+          // For other parameters, add validation and parameter binding as needed)) {
         try (var rs = statement.executeQuery()) {
           while (rs.next()) {
             Server server =
