@@ -4,6 +4,8 @@
  */
 package org.owasp.webgoat.lessons.pathtraversal;
 
+import java.util.UUID;
+
 import static org.owasp.webgoat.container.assignments.AttackResultBuilder.failed;
 import static org.owasp.webgoat.container.assignments.AttackResultBuilder.success;
 import static org.springframework.http.MediaType.ALL_VALUE;
@@ -69,7 +71,8 @@ public class ProfileZipSlip extends ProfileUploadBase {
     var currentImage = getProfilePictureAsBase64(username);
 
     try {
-      var uploadedZipFile = tmpZipDirectory.resolve(file.getOriginalFilename());
+      String safeFileName = UUID.randomUUID().toString() + ".zip";  // Consider replacing the extension if needed
+      Path uploadedZipFile = tmpZipDirectory.resolve(safeFileName);
       FileCopyUtils.copy(file.getBytes(), uploadedZipFile.toFile());
 
       ZipFile zip = new ZipFile(uploadedZipFile.toFile());
