@@ -67,12 +67,19 @@ public class ProfileUploadBase implements AssignmentEndpoint {
 
   @SneakyThrows
   protected File cleanupAndCreateDirectoryForUser(String username) {
+    validateUsername(username);
     var uploadDirectory = new File(this.webGoatHomeDirectory, "/PathTraversal/" + username);
     if (uploadDirectory.exists()) {
       FileSystemUtils.deleteRecursively(uploadDirectory);
     }
     Files.createDirectories(uploadDirectory.toPath());
     return uploadDirectory;
+  }
+
+  private void validateUsername(String username) {
+    if (username.contains("..") || username.contains("/") || username.contains("\\") || new File(username).isAbsolute()) {
+      throw new IllegalArgumentException("Invalid username");
+    }
   }
 
   private boolean attemptWasMade(File expectedUploadDirectory, File uploadedFile)
