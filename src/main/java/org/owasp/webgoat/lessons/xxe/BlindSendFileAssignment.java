@@ -11,6 +11,7 @@ import static org.owasp.webgoat.container.assignments.AttackResultBuilder.succes
 import static org.springframework.http.MediaType.ALL_VALUE;
 import static org.springframework.http.MediaType.APPLICATION_JSON_VALUE;
 
+import java.util.regex.Pattern;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -53,7 +54,7 @@ public class BlindSendFileAssignment implements AssignmentEndpoint, Initializabl
   private void createSecretFileWithRandomContents(WebGoatUser user) {
     var fileContents = "WebGoat 8.0 rocks... (" + randomAlphabetic(10) + ")";
     userToFileContents.put(user, fileContents);
-    File targetDirectory = new File(webGoatHomeDirectory, "/XXE/" + user.getUsername());
+    File targetDirectory = new File(webGoatHomeDirectory, "/XXE/" + sanitizeUserName(user.getUsername()));
     if (!targetDirectory.exists()) {
       targetDirectory.mkdirs();
     }
@@ -62,6 +63,14 @@ public class BlindSendFileAssignment implements AssignmentEndpoint, Initializabl
     } catch (IOException e) {
       log.error("Unable to write 'secret.txt' to '{}", targetDirectory);
     }
+  }
+
+  private String sanitizeUserName(String username) {
+      // Allow only letters, numbers, underscores, and hyphens
+      if (username == null || !username.matches("[A-Za-z0-9_-]+")) {
+          throw new IllegalArgumentException("Invalid username provided.");
+      }
+      return username;
   }
 
   @PostMapping(path = "xxe/blind", consumes = ALL_VALUE, produces = APPLICATION_JSON_VALUE)
