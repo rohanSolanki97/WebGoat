@@ -97,6 +97,10 @@ public class ProfileUploadRetrieval implements AssignmentEndpoint {
     }
     try {
       var id = request.getParameter("id");
+      // Validate that id contains only digits; adjust the regex if a different pattern is required
+      if (id != null && !id.matches("^[0-9]+$")) {
+          throw new IllegalArgumentException("Invalid file identifier provided.");
+      }
       var catPicture =
           new File(catPicturesDirectory, (id == null ? RandomUtils.nextInt(1, 11) : id) + ".jpg");
 
