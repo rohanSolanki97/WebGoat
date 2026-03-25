@@ -67,7 +67,11 @@ public class ProfileUploadBase implements AssignmentEndpoint {
 
   @SneakyThrows
   protected File cleanupAndCreateDirectoryForUser(String username) {
-    var uploadDirectory = new File(this.webGoatHomeDirectory, "/PathTraversal/" + username);
+      // VALIDATE: Ensure username does not contain directory traversal characters
+  if (username.contains("..") || username.contains("/") || username.contains("\\")) {
+      throw new IllegalArgumentException("Invalid username input - potential path traversal detected");
+  }
+  var uploadDirectory = new File(this.webGoatHomeDirectory, "/PathTraversal/" + username);
     if (uploadDirectory.exists()) {
       FileSystemUtils.deleteRecursively(uploadDirectory);
     }
