@@ -108,11 +108,11 @@ public class ProfileUploadRetrieval implements AssignmentEndpoint {
       if (catPicture.exists()) {
         return ResponseEntity.ok()
             .contentType(MediaType.parseMediaType(MediaType.IMAGE_JPEG_VALUE))
-            .location(new URI("/PathTraversal/random-picture?id=" + catPicture.getName()))
+            .location(new URI("/PathTraversal/random-picture?id=<internal_safe_id>")) // TODO: Replace <internal_safe_id> with a securely generated internal identifier mapping to the file
             .body(Base64.getEncoder().encode(FileCopyUtils.copyToByteArray(catPicture)));
       }
       return ResponseEntity.status(HttpStatus.NOT_FOUND)
-          .location(new URI("/PathTraversal/random-picture?id=" + catPicture.getName()))
+          .location(new URI("/PathTraversal/random-picture?id=<internal_safe_id>")) // TODO: Replace <internal_safe_id> with a securely generated internal identifier mapping to the file
           .body(
               StringUtils.arrayToCommaDelimitedString(catPicture.getParentFile().listFiles())
                   .getBytes());
