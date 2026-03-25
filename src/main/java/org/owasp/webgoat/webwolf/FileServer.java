@@ -104,7 +104,8 @@ public class FileServer {
     if (files != null) {
       for (File file : files) {
         String size = FileUtils.byteCountToDisplaySize(file.length());
-        String link = String.format("files/%s/%s", username, file.getName());
+        String safeDir = getSafeUserDirectory(username);  // TODO: Implement getSafeUserDirectory to return a trusted directory based on session data
+        String link = String.format("files/%s/%s", safeDir, file.getName());
         uploadedFiles.add(
             new UploadedFile(file.getName(), size, link, getCreationTime(timezone, file)));
       }
@@ -125,5 +126,12 @@ public class FileServer {
     } catch (IOException e) {
       return "unknown";
     }
+  }
+  private String getSafeUserDirectory(String username) {
+    // Validate the username to prevent path traversal vulnerabilities
+    if (username.contains("..") || username.startsWith("/") || username.startsWith(File.separator)) {
+      throw new IllegalArgumentException("Invalid username");
+    }
+    return username;
   }
 }
