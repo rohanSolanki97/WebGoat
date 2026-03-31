@@ -19,7 +19,9 @@ define(['jquery',
         },
 
         loadData: function(options) {
-            this.urlRoot = _.escape(encodeURIComponent(options.name)) + '.lesson'
+            // Use encodeURIComponent only; _.escape here is unnecessary for URL construction
+            // and can introduce double-encoding / complexity issues.
+            this.urlRoot = encodeURIComponent(options.name) + '.lesson';
             var self = this;
             this.fetch().done(function(data) {
                 self.setContent(data);
@@ -32,8 +34,11 @@ define(['jquery',
             }
             this.set('content',content);
             this.set('lessonUrl',document.URL.replace(/\.lesson.*/,'.lesson'));
-            if (/.*\.lesson\/(\d{1,4})$/.test(document.URL)) {
-                this.set('pageNum',document.URL.replace(/.*\.lesson\/(\d{1,4})$/,'$1'));
+
+            // Refined regex: avoid catastrophic backtracking by using anchors and non‑greedy form
+            var pageMatch = document.URL.match(/\.lesson\/(\d{1,4})$/);
+            if (pageMatch) {
+                this.set('pageNum', pageMatch[1]);
             } else {
                 this.set('pageNum',0);
             }
