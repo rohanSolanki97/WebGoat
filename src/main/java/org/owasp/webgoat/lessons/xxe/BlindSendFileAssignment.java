@@ -14,6 +14,8 @@ import static org.springframework.http.MediaType.APPLICATION_JSON_VALUE;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
@@ -53,14 +55,32 @@ public class BlindSendFileAssignment implements AssignmentEndpoint, Initializabl
   private void createSecretFileWithRandomContents(WebGoatUser user) {
     var fileContents = "WebGoat 8.0 rocks... (" + randomAlphabetic(10) + ")";
     userToFileContents.put(user, fileContents);
-    File targetDirectory = new File(webGoatHomeDirectory, "/XXE/" + user.getUsername());
-    if (!targetDirectory.exists()) {
-      targetDirectory.mkdirs();
+
+    // Fix: Use Paths.get().normalize() to prevent path traversal in the user-specific directory.
+    // Ensure the resolved path remains within the intended base directory.
+    Path baseDir = Paths.get(webGoatHomeDirectory, "XXE").normalize();
+    Path userSpecificDir = baseDir.resolve(user.getUsername()).normalize();
+
+    // Critical security check: ensure the normalized path is still a sub-path of the base directory
+    if (!userSpecificDir.startsWith(baseDir)) {
+        log.error("Path traversal attempt detected for user: {}", user.getUsername());
+        // Depending on application requirements, this could throw an exception or return early.
+        // For this fix, we'll log and prevent file creation in an unintended location.
+        return;
+    }
+
+    if (!Files.exists(userSpecificDir)) {
+      try {
+        Files.createDirectories(userSpecificDir);
+      } catch (IOException e) {
+        log.error("Unable to create directory '{}' for user '{}': {}", userSpecificDir, user.getUsername(), e.getMessage());
+        return;
+      }
     }
     try {
-      Files.writeString(new File(targetDirectory, "secret.txt").toPath(), fileContents, UTF_8);
+      Files.writeString(userSpecificDir.resolve("secret.txt"), fileContents, UTF_8);
     } catch (IOException e) {
-      log.error("Unable to write 'secret.txt' to '{}", targetDirectory);
+      log.error("Unable to write 'secret.txt' to '{}': {}", userSpecificDir, e.getMessage());
     }
   }
 
