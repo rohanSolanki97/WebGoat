@@ -59,7 +59,6 @@ public class WebSecurityConfig {
               oidc.loginPage("/login");
             })
         .logout(logout -> logout.deleteCookies("JSESSIONID").invalidateHttpSession(true))
-        .csrf(csrf -> csrf.ignoringRequestMatchers("/h2-console/**")) // Re-enabled CSRF, ignoring H2 console for compatibility
         .headers(headers -> headers.disable())
         .exceptionHandling(
             handling ->
