@@ -8,6 +8,7 @@ import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.servlet.ModelAndView;
+import org.springframework.web.servlet.view.RedirectView; // Import RedirectView
 
 /**
  * Provides a real 302 redirect for experimentation separate from assignment scoring.
@@ -17,13 +18,14 @@ public class OpenRedirectRealRedirect {
 
   @GetMapping("/OpenRedirect/realRedirect")
   public ModelAndView real(@RequestParam("url") String url) {
-    // Fix: Validate that the URL starts with a '/' to ensure it's an internal path
-    // and prevent redirects to external, potentially malicious, sites.
-    if (url != null && url.startsWith("/")) {
-      return new ModelAndView("redirect:" + url);
+    // Validate the URL to prevent open redirects
+    // Only allow relative paths starting with '/' and prevent scheme-relative URLs (e.g., //evil.com)
+    // Also, ensure it's not an absolute URL to an external domain.
+    if (url != null && url.startsWith("/") && !url.startsWith("//") && !url.contains("://")) {
+      return new ModelAndView("redirect:" + url); // Safe redirect to internal path
     } else {
-      // Redirect to a safe default page if the URL is not an internal path or is null/empty
-      return new ModelAndView("redirect:/"); // Redirect to root context path
+      // Default to a safe page or error page if the URL is not valid
+      return new ModelAndView("redirect:/home"); // Redirect to a safe, known internal page
     }
   }
 }

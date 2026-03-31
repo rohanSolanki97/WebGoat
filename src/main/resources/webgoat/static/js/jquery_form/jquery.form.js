@@ -696,7 +696,7 @@ $.fn.ajaxSubmit = function(options) {
                         xhr.responseText = ta.value;
                         // support for XHR 'status' & 'statusText' emulation :
                         xhr.status = Number( ta.getAttribute('status') ) || xhr.status;
-                        xhr.statusText = ta.getAttribute('statusText') || xhr.statusText;
+                        xhr.statusText = ta.getAttribute('statusText') || ta.getAttribute('statusText') || xhr.statusText;
                     }
                     else if (scr) {
                         // account for browsers injecting pre around json response
@@ -800,13 +800,15 @@ $.fn.ajaxSubmit = function(options) {
             }
             return (doc && doc.documentElement && doc.documentElement.nodeName != 'parsererror') ? doc : null;
         };
-
-        // NOTE: this helper has been hardened to avoid eval-based JSON parsing.
         var parseJSON = $.parseJSON || function(s) {
-            if (typeof JSON !== 'undefined' && typeof JSON.parse === 'function') {
-                return JSON.parse(s);
+            /*jslint evil:true */
+            // SECURITY HARDENING:
+            // Disallow dynamic code execution from untrusted strings.
+            // If JSON.parse is available, use it instead. Otherwise, fail closed.
+            if (window.JSON && typeof window.JSON.parse === 'function') {
+                return window.JSON.parse(s);
             }
-            throw new Error('JSON parsing is not supported in this environment without JSON.parse');
+            throw new Error('Unsafe JSON parsing blocked: native JSON.parse not available');
         };
 
         var httpData = function( xhr, type, s ) { // mostly lifted from jq1.4.4
@@ -827,7 +829,11 @@ $.fn.ajaxSubmit = function(options) {
                 if (type === 'json' || !type && ct.indexOf('json') >= 0) {
                     data = parseJSON(data);
                 } else if (type === "script" || !type && ct.indexOf("javascript") >= 0) {
-                    $.globalEval(data);
+                    // SECURITY HARDENING:
+                    // Avoid dynamic evaluation of arbitrary script responses here.
+                    // If script execution is needed, it must be handled explicitly by callers
+                    // in a controlled manner (e.g., via <script> tags or a vetted loader).
+                    log('ajaxSubmit: skipping automatic script execution for security');
                 }
             }
             return data;
