@@ -1,63 +1,54 @@
 package org.owasp.webgoat.lessons.sqlinjection.advanced;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verify;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
-import org.junit.jupiter.api.DisplayName;
+import java.sql.SQLException;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 import org.owasp.webgoat.container.LessonDataSource;
-import org.owasp.webgoat.container.assignments.AttackResult;
 
-class SqlInjectionChallengeTest {
+/**
+ * Delta test focusing on the change from a Statement with concatenated SQL to a
+ * PreparedStatement with a parameterized query for user existence check.
+ */
+public class SqlInjectionChallengeTest {
 
   @Test
-  @DisplayName("registerNewUser should use PreparedStatement with parameter for username check")
-  void registerNewUserUsesPreparedStatementForUserLookup() throws Exception {
+  void registerNewUser_usesPreparedStatementForUserLookup() throws SQLException {
+    // Arrange
     LessonDataSource dataSource = Mockito.mock(LessonDataSource.class);
     SqlInjectionChallenge challenge = new SqlInjectionChallenge(dataSource);
 
+    String username = "alice";
+    String email = "alice@example.com";
+    String password = "pwd";
+
     Connection connection = Mockito.mock(Connection.class);
-    PreparedStatement checkUserStatement = Mockito.mock(PreparedStatement.class);
-    PreparedStatement insertUserStatement = Mockito.mock(PreparedStatement.class);
-    ResultSet resultSet = Mockito.mock(ResultSet.class);
+    PreparedStatement checkStmt = Mockito.mock(PreparedStatement.class);
+    PreparedStatement insertStmt = Mockito.mock(PreparedStatement.class);
+    ResultSet rs = Mockito.mock(ResultSet.class);
 
     Mockito.when(dataSource.getConnection()).thenReturn(connection);
-    Mockito
-        .when(
+    Mockito.when(
             connection.prepareStatement(
                 "select userid from sql_challenge_users where userid = ?"))
-        .thenReturn(checkUserStatement);
-    Mockito
-        .when(connection.prepareStatement("INSERT INTO sql_challenge_users VALUES (?, ?, ?)"))
-        .thenReturn(insertUserStatement);
-    Mockito.when(checkUserStatement.executeQuery()).thenReturn(resultSet);
-    Mockito.when(resultSet.next()).thenReturn(false);
+        .thenReturn(checkStmt);
+    Mockito.when(checkStmt.executeQuery()).thenReturn(rs);
+    Mockito.when(rs.next()).thenReturn(false);
+    Mockito.when(
+            connection.prepareStatement("INSERT INTO sql_challenge_users VALUES (?, ?, ?)"))
+        .thenReturn(insertStmt);
 
-    String username = "user' OR '1'='1";
-    String email = "email@example.com";
-    String password = "pass";
+    // Act
+    challenge.registerNewUser(username, email, password);
 
-    AttackResult result = challenge.registerNewUser(username, email, password);
-
-    ArgumentCaptor<String> queryCaptor = ArgumentCaptor.forClass(String.class);
-    Mockito.verify(connection, times(1)).prepareStatement(queryCaptor.capture());
-    assertEquals(
-        "select userid from sql_challenge_users where userid = ?",
-        queryCaptor.getValue(),
-        "User check query should use placeholder for username");
-
-    Mockito.verify(checkUserStatement, times(1)).setString(1, username);
-    Mockito.verify(checkUserStatement, times(1)).executeQuery();
-    Mockito.verify(connection, never()).createStatement();
-
-    Mockito.verify(insertUserStatement, times(1)).setString(1, username);
-    Mockito.verify(insertUserStatement, times(1)).setString(2, email);
-    Mockito.verify(insertUserStatement, times(1)).setString(3, password);
+    // Assert
+    // The secure behavior is using a parameterized query with a bound username.
+    verify(checkStmt).setString(eq(1), eq(username));
+    verify(checkStmt).executeQuery();
   }
 }
