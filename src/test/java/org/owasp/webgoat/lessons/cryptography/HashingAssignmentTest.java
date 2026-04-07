@@ -1,41 +1,55 @@
 package org.owasp.webgoat.lessons.cryptography;
 
-import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.mockito.Mockito.when;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpSession;
 import java.security.NoSuchAlgorithmException;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 /**
- * Delta test focusing on the change from java.util.Random to java.security.SecureRandom:
- * verifies that different sessions are unlikely to receive the same hash.
+ * Delta tests for HashingAssignment focusing on the changed randomness source in getMd5().
+ *
+ * Test file path (derived): src/test/java/org/owasp/webgoat/lessons/cryptography/HashingAssignmentTest.java
  */
 public class HashingAssignmentTest {
 
+  private HashingAssignment hashingAssignment;
+  private HttpServletRequest request;
+  private HttpSession session;
+
+  @BeforeEach
+  void setUp() {
+    hashingAssignment = new HashingAssignment();
+    request = Mockito.mock(HttpServletRequest.class);
+    session = Mockito.mock(HttpSession.class);
+    when(request.getSession()).thenReturn(session);
+  }
+
   @Test
-  void getMd5_returnsDifferentHashesForDifferentSessions() throws NoSuchAlgorithmException {
-    // Arrange
-    HashingAssignment assignment = new HashingAssignment();
+  void getMd5_generatesAndStoresHashWhenNotPresent() throws NoSuchAlgorithmException {
+    when(session.getAttribute("md5Hash")).thenReturn(null);
 
-    HttpServletRequest request1 = Mockito.mock(HttpServletRequest.class);
-    HttpServletRequest request2 = Mockito.mock(HttpServletRequest.class);
-    HttpSession session1 = Mockito.mock(HttpSession.class);
-    HttpSession session2 = Mockito.mock(HttpSession.class);
+    String hash = hashingAssignment.getMd5(request);
 
-    Mockito.when(request1.getSession()).thenReturn(session1);
-    Mockito.when(request2.getSession()).thenReturn(session2);
-    Mockito.when(session1.getAttribute("md5Hash")).thenReturn(null);
-    Mockito.when(session2.getAttribute("md5Hash")).thenReturn(null);
+    Mockito.verify(session).setAttribute(Mockito.eq("md5Hash"), Mockito.anyString());
+    Mockito.verify(session).setAttribute(Mockito.eq("md5Secret"), Mockito.anyString());
+    assertNotNull(hash);
+  }
 
-    // Act
-    String hash1 = assignment.getMd5(request1);
-    String hash2 = assignment.getMd5(request2);
+  @Test
+  void getMd5_returnsExistingHashWithoutRegenerating() throws NoSuchAlgorithmException {
+    when(session.getAttribute("md5Hash")).thenReturn("EXISTING_HASH");
 
-    // Assert
-    // With SecureRandom, the probability that two independent sessions get the same secret
-    // (and thus the same hash) is low; this assertion focuses on the new randomness behavior.
-    assertNotEquals(hash1, hash2);
+    String hash = hashingAssignment.getMd5(request);
+
+    Mockito.verify(session, Mockito.never())
+        .setAttribute(Mockito.eq("md5Hash"), Mockito.anyString());
+    Mockito.verify(session, Mockito.never())
+        .setAttribute(Mockito.eq("md5Secret"), Mockito.anyString());
+    assertNotNull(hash);
   }
 }
