@@ -10,10 +10,10 @@ import static org.owasp.webgoat.container.assignments.AttackResultBuilder.failed
 import static org.owasp.webgoat.container.assignments.AttackResultBuilder.success;
 
 import java.sql.Connection;
+import java.sql.PreparedStatement; // Added import for PreparedStatement
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
-import java.sql.PreparedStatement; // Import PreparedStatement
 import org.owasp.webgoat.container.LessonDataSource;
 import org.owasp.webgoat.container.assignments.AssignmentEndpoint;
 import org.owasp.webgoat.container.assignments.AssignmentHints;
@@ -40,36 +40,34 @@ public class SqlInjectionLesson3 implements AssignmentEndpoint {
   }
 
   protected AttackResult injectableQuery(String query) {
-    // Define the expected query for the lesson to succeed
-    String expectedUpdateQuery = "UPDATE employees SET department = 'Sales' WHERE last_name = 'Barnett'";
-
     try (Connection connection = dataSource.getConnection()) {
-      // Only allow the specific expected update query for the lesson
-      if (query.trim().equalsIgnoreCase(expectedUpdateQuery)) {
-        try (Statement statement = connection.createStatement()) { // Use simple Statement for fixed query
-          statement.executeUpdate(query);
-        }
-      } else {
-        // If the query is not the expected one, prevent execution and fail
-        return failed(this).output("Only the specific update for Tobi Barnett's department is allowed for this lesson.").build();
-      }
+      // Vulnerability: Direct execution of user-supplied 'query' as a SQL statement.
+      // Remediation: Use PreparedStatement to parameterize the SQL query.
+      // Based on the lesson's success condition (department of Barnett becomes 'Sales'),
+      // it's inferred that 'query' is intended to be the value for the 'department' column
+      // in an UPDATE statement.
+      String updateSql = "UPDATE employees SET department = ? WHERE last_name = 'Barnett'";
+      try (PreparedStatement preparedStatement = connection.prepareStatement(updateSql)) {
+        preparedStatement.setString(1, query); // Bind the user-supplied 'query' as a parameter
+        preparedStatement.executeUpdate();
 
-      // The check for lesson completion remains the same
-      try (Statement checkStatement =
-          connection.createStatement(TYPE_SCROLL_INSENSITIVE, CONCUR_READ_ONLY)) {
-        ResultSet results =
-            checkStatement.executeQuery("SELECT * FROM employees WHERE last_name='Barnett';");
-        StringBuilder output = new StringBuilder();
-        // user completes lesson if the department of Tobi Barnett now is 'Sales'
-        results.first();
-        if (results.getString("department").equals("Sales")) {
-          output.append("<span class='feedback-positive'>").append(query).append("</span>");
-          output.append(SqlInjectionLesson8.generateTable(results));
-          return success(this).output(output.toString()).build();
-        } else {
-          return failed(this).output(output.toString()).build();
+        // The checkStatement is used for internal validation and does not process user input,
+        // so it can safely remain a Statement.
+        try (Statement checkStatement =
+            connection.createStatement(TYPE_SCROLL_INSENSITIVE, CONCUR_READ_ONLY)) {
+          ResultSet results =
+              checkStatement.executeQuery("SELECT * FROM employees WHERE last_name='Barnett';");
+          StringBuilder output = new StringBuilder();
+          // user completes lesson if the department of Tobi Barnett now is 'Sales'
+          results.first();
+          if (results.getString("department").equals("Sales")) {
+            output.append("<span class='feedback-positive'>Department updated to: " + query + "</span>"); // Adjusted output message
+            output.append(SqlInjectionLesson8.generateTable(results));
+            return success(this).output(output.toString()).build();
+          } else {
+            return failed(this).output(output.toString()).build();
+          }
         }
-
       } catch (SQLException sqle) {
         return failed(this).output(sqle.getMessage()).build();
       }
