@@ -19,7 +19,7 @@ define(['jquery',
         },
 
         loadData: function(options) {
-            this.urlRoot = _.escape(encodeURIComponent(options.name)) + '.lesson';
+            this.urlRoot = _.escape(encodeURIComponent(options.name)) + '.lesson'
             var self = this;
             this.fetch().done(function(data) {
                 self.setContent(data);
@@ -30,35 +30,39 @@ define(['jquery',
             if (typeof loadHelps === 'undefined') {
                 loadHelps = true;
             }
+            this.set('content',content);
 
-            // Capture the current URL once and avoid unnecessary recomputation
-            var currentUrl = String(document.URL || '');
-
-            this.set('content', content);
-
-            // Avoid overly complex regex; use simple, efficient parsing for lessonUrl
-            // and ensure we do not accidentally process extremely long URLs with heavy regex.
-            var lessonUrl = currentUrl;
+            // Use a simpler, linear-time-safe pattern for lessonUrl
+            // Previous: document.URL.replace(/\.lesson.*/,'.lesson')
+            // Now: use indexOf/slice to avoid regex backtracking.
+            var currentUrl = document.URL || '';
             var lessonIndex = currentUrl.indexOf('.lesson');
             if (lessonIndex !== -1) {
-                lessonUrl = currentUrl.substring(0, lessonIndex + '.lesson'.length);
+                this.set('lessonUrl', currentUrl.slice(0, lessonIndex + '.lesson'.length));
+            } else {
+                this.set('lessonUrl', currentUrl);
             }
-            this.set('lessonUrl', lessonUrl);
 
-            // Use a lightweight and bounded regex for pageNum extraction to mitigate
-            // inefficient regular expression complexity (ReDoS) concerns.
+            // Replace complex regex with index-based parsing to avoid ReDoS patterns
+            // Previous:
+            // if (/.*\.lesson\/(\d{1,4})$/.test(document.URL)) {
+            //     this.set('pageNum',document.URL.replace(/.*\.lesson\/(\d{1,4})$/,'$1'));
+            // } else {
+            //     this.set('pageNum',0);
+            // }
             var pageNum = 0;
-            // Pattern: "<anything>.lesson/<1-4 digits>" at the end of the URL
-            var match = currentUrl.match(/\.lesson\/(\d{1,4})$/);
-            if (match && match[1]) {
-                pageNum = parseInt(match[1], 10);
-                if (!Number.isFinite(pageNum)) {
-                    pageNum = 0;
+            var lessonPathIndex = currentUrl.indexOf('.lesson/');
+            if (lessonPathIndex !== -1) {
+                var pagePart = currentUrl.substring(lessonPathIndex + '.lesson/'.length);
+                // only accept 1–4 digits
+                var pageMatch = pagePart.match(/^\d{1,4}$/);
+                if (pageMatch) {
+                    pageNum = parseInt(pageMatch[0], 10);
                 }
             }
             this.set('pageNum', pageNum);
 
-            this.trigger('content:loaded', this, loadHelps);
+            this.trigger('content:loaded',this,loadHelps);
         },
 
         fetch: function (options) {

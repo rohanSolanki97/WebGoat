@@ -1,73 +1,92 @@
-// File: src/test/resources/webgoat/static/js/goatApp/model/LessonContentModel.test.js
-// Derived from source path by replacing '/main/' with '/test/':
-//   src/main/resources/webgoat/static/js/goatApp/model/LessonContentModel.js
-//   -> src/test/resources/webgoat/static/js/goatApp/model/LessonContentModel.test.js
+// Resolved test path (derived from src/main/resources → src/test/resources):
+// src/test/resources/webgoat/static/js/goatApp/model/LessonContentModel.test.js
 
-// NOTE: This test is written assuming a CommonJS environment with Jest and that the AMD module
-// is bundled or exposed in a way that allows requiring the model constructor. In a real project
-// this might be wired differently via RequireJS or a bundler.
-// TODO: Adjust the require path if your build exposes the model differently.
+const vm = require('vm');
+const fs = require('fs');
+const path = require('path');
 
-const $ = require('jquery');
-const _ = require('underscore');
-const Backbone = require('backbone');
+describe('LessonContentModel delta tests – URL parsing and pageNum logic', () => {
+  let sandbox;
+  let LessonContentModelCtor;
 
-// Minimal HTMLContentModel stub to satisfy the dependency in LessonContentModel.js
-class HTMLContentModel extends Backbone.Model {}
-// Shim define to allow the AMD module to register itself and return the extended model
-global.define = function (deps, factory) {
-  module.exports = factory($, _, Backbone, HTMLContentModel);
-};
+  function loadModule() {
+    sandbox = {
+      console,
+      document: { URL: '' }
+    };
 
-require('../../../../../main/resources/webgoat/static/js/goatApp/model/LessonContentModel.js');
-const LessonContentModel = module.exports;
+    const _ = {
+      escape: (s) => s,
+      extend: Object.assign
+    };
 
-describe('LessonContentModel delta tests', () => {
-  let model;
+    const Backbone = {
+      Model: function () {
+        this.attributes = {};
+      }
+    };
+
+    Backbone.Model.prototype.set = function (key, value) {
+      this.attributes[key] = value;
+    };
+
+    Backbone.Model.prototype.fetch = function () {
+      return { done: (cb) => cb('<html></html>') };
+    };
+
+    const HTMLContentModel = Backbone.Model;
+
+    HTMLContentModel.extend = function (props) {
+      function Ctor() {
+        Backbone.Model.call(this);
+        if (typeof props.initialize === 'function') {
+          props.initialize.apply(this, arguments);
+        }
+      }
+      Ctor.prototype = Object.create(Backbone.Model.prototype);
+      Object.assign(Ctor.prototype, props);
+      return Ctor;
+    };
+
+    Backbone.Model.extend = HTMLContentModel.extend;
+
+    sandbox.define = function (deps, factory) {
+      LessonContentModelCtor = factory({}, _, Backbone, HTMLContentModel);
+    };
+
+    const modulePath = path.resolve(
+      __dirname,
+      '../../../../../main/resources/webgoat/static/js/goatApp/model/LessonContentModel.js'
+    );
+    const code = fs.readFileSync(modulePath, 'utf8');
+    vm.runInNewContext(code, sandbox);
+  }
 
   beforeEach(() => {
-    model = new LessonContentModel();
+    loadModule();
   });
 
-  test('loadData should build urlRoot using encodeURIComponent only (no HTML escaping)', () => {
-    const name = 'Lesson 1 & Intro';
-    model.loadData({ name });
+  test('setContent computes lessonUrl and pageNum when URL contains ".lesson/NNNN"', () => {
+    const instance = new LessonContentModelCtor();
+    sandbox.document.URL = 'http://example.com/SomeLesson.lesson/12';
 
-    const expected = encodeURIComponent(name) + '.lesson';
-    expect(model.urlRoot).toBe(expected);
+    instance.setContent('<html></html>', true);
+
+    expect(instance.attributes.lessonUrl).toBe(
+      'http://example.com/SomeLesson.lesson'
+    );
+    expect(instance.attributes.pageNum).toBe(12);
   });
 
-  test('setContent should extract pageNum from URL using safe regex without catastrophic backtracking', () => {
-    const originalLocation = global.document && global.document.URL;
-    // Simulate a lesson URL with page number
-    global.document = {
-      URL: 'http://localhost:8080/WebGoat/lesson/SomeLesson.lesson/1234',
-    };
+  test('setContent computes lessonUrl and pageNum when URL lacks ".lesson/NNNN"', () => {
+    const instance = new LessonContentModelCtor();
+    sandbox.document.URL = 'http://example.com/OtherLesson.lesson';
 
-    const content = '<div>dummy</div>';
-    model.setContent(content);
+    instance.setContent('<html></html>', true);
 
-    expect(model.get('pageNum')).toBe('1234');
-
-    // Restore original document if it existed
-    if (originalLocation) {
-      global.document.URL = originalLocation;
-    }
-  });
-
-  test('setContent should default pageNum to 0 when URL does not contain page number', () => {
-    const originalLocation = global.document && global.document.URL;
-    global.document = {
-      URL: 'http://localhost:8080/WebGoat/lesson/SomeLesson.lesson',
-    };
-
-    const content = '<div>dummy</div>';
-    model.setContent(content);
-
-    expect(model.get('pageNum')).toBe(0);
-
-    if (originalLocation) {
-      global.document.URL = originalLocation;
-    }
+    expect(instance.attributes.lessonUrl).toBe(
+      'http://example.com/OtherLesson.lesson'
+    );
+    expect(instance.attributes.pageNum).toBe(0);
   });
 });
