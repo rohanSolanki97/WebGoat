@@ -14,6 +14,8 @@ import static org.springframework.http.MediaType.APPLICATION_JSON_VALUE;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.Path; // Added import for Path
+import java.nio.file.Paths; // Added import for Paths
 import java.util.HashMap;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
@@ -28,7 +30,6 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.ResponseBody;
 import org.springframework.web.bind.annotation.RestController;
-import org.apache.commons.io.FilenameUtils; // Import for sanitization
 
 @Slf4j
 @RestController
@@ -54,16 +55,49 @@ public class BlindSendFileAssignment implements AssignmentEndpoint, Initializabl
   private void createSecretFileWithRandomContents(WebGoatUser user) {
     var fileContents = "WebGoat 8.0 rocks... (" + randomAlphabetic(10) + ")";
     userToFileContents.put(user, fileContents);
-    // Sanitize username to prevent path traversal in directory creation
-    String sanitizedUsername = FilenameUtils.getName(user.getUsername());
-    File targetDirectory = new File(webGoatHomeDirectory, "/XXE/" + sanitizedUsername);
-    if (!targetDirectory.exists()) {
-      targetDirectory.mkdirs();
-    }
+
+    // Define the base directory where user-specific directories should reside
+    Path baseUserSecretsDir = Paths.get(webGoatHomeDirectory, "XXE");
+
+    // Ensure base directory exists
     try {
-      Files.writeString(new File(targetDirectory, "secret.txt").toPath(), fileContents, UTF_8);
+        Files.createDirectories(baseUserSecretsDir);
     } catch (IOException e) {
-      log.error("Unable to write 'secret.txt' to '{}", targetDirectory);
+        log.error("Unable to create base directory for XXE secrets: {}", baseUserSecretsDir, e);
+        return;
+    }
+
+    // Sanitize the username to prevent path traversal in directory creation
+    // Remove any path separators or problematic characters.
+    String sanitizedUsername = user.getUsername().replaceAll("[/\\\\]", "");
+    if (sanitizedUsername.isEmpty() || sanitizedUsername.equals(".") || sanitizedUsername.equals("..")) {
+        log.error("Attempted to use an invalid username for directory creation: {}", user.getUsername());
+        return;
+    }
+
+    Path userSpecificDirectory = baseUserSecretsDir.resolve(sanitizedUsername).normalize();
+
+    // Crucial check: ensure the resolved path is still within the intended base directory
+    // This prevents ".." from escaping baseUserSecretsDir
+    if (!userSpecificDirectory.startsWith(baseUserSecretsDir)) {
+        log.error("Path traversal attempt detected for user: {}. Resolved path: {}", user.getUsername(), userSpecificDirectory);
+        return;
+    }
+
+    // Ensure the user-specific directory exists
+    try {
+        Files.createDirectories(userSpecificDirectory);
+    }
+    catch (IOException e) {
+        log.error("Unable to create user-specific directory: {}", userSpecificDirectory, e);
+        return;
+    }
+
+    // Now write the file to the safe, user-specific directory
+    try {
+      Files.writeString(userSpecificDirectory.resolve("secret.txt"), fileContents, UTF_8);
+    } catch (IOException e) {
+      log.error("Unable to write 'secret.txt' to '{}'", userSpecificDirectory, e);
     }
   }
 
