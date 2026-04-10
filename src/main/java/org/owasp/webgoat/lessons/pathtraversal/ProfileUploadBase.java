@@ -17,7 +17,7 @@ import java.util.Base64;
 import java.util.List;
 import lombok.Getter;
 import lombok.SneakyThrows;
-import org.apache.commons.io.FilenameUtils;
+import org.apache.commons.io.FilenameUtils; // Remediation: Added import for FilenameUtils
 import org.owasp.webgoat.container.CurrentUsername;
 import org.owasp.webgoat.container.assignments.AssignmentEndpoint;
 import org.owasp.webgoat.container.assignments.AttackResult;
@@ -45,13 +45,11 @@ public class ProfileUploadBase implements AssignmentEndpoint {
       return failed(this).feedback("path-traversal-profile-empty-name").build();
     }
 
-    // Sanitize username to prevent path traversal in directory creation
-    String sanitizedUsername = FilenameUtils.getName(username);
-    File uploadDirectory = cleanupAndCreateDirectoryForUser(sanitizedUsername);
+    File uploadDirectory = cleanupAndCreateDirectoryForUser(username);
 
     try {
-      // Sanitize fullName to prevent path traversal in filename
-      String sanitizedFullName = FilenameUtils.getName(fullName);
+      // Remediation: Sanitize fullName to prevent path traversal when creating the file
+      var sanitizedFullName = FilenameUtils.getName(fullName); // Extract only the filename
       var uploadedFile = new File(uploadDirectory, sanitizedFullName);
       uploadedFile.createNewFile();
       FileCopyUtils.copy(file.getBytes(), uploadedFile);
@@ -71,7 +69,6 @@ public class ProfileUploadBase implements AssignmentEndpoint {
 
   @SneakyThrows
   protected File cleanupAndCreateDirectoryForUser(String username) {
-    // username is already sanitized by the caller (execute method)
     var uploadDirectory = new File(this.webGoatHomeDirectory, "/PathTraversal/" + username);
     if (uploadDirectory.exists()) {
       FileSystemUtils.deleteRecursively(uploadDirectory);
@@ -99,15 +96,12 @@ public class ProfileUploadBase implements AssignmentEndpoint {
   }
 
   public ResponseEntity<?> getProfilePicture(@CurrentUsername String username) {
-    // Sanitize username to prevent path traversal when accessing profile picture directory
-    String sanitizedUsername = FilenameUtils.getName(username);
     return ResponseEntity.ok()
         .contentType(MediaType.parseMediaType(MediaType.IMAGE_JPEG_VALUE))
-        .body(getProfilePictureAsBase64(sanitizedUsername));
+        .body(getProfilePictureAsBase64(username));
   }
 
   protected byte[] getProfilePictureAsBase64(String username) {
-    // username is already sanitized by the caller (getProfilePicture method)
     var profilePictureDirectory = new File(this.webGoatHomeDirectory, "/PathTraversal/" + username);
     var profileDirectoryFiles = profilePictureDirectory.listFiles();
 

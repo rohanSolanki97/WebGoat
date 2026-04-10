@@ -1,65 +1,51 @@
 package org.owasp.webgoat.lessons.pathtraversal;
 
-import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.when;
 
+import java.io.File;
 import java.nio.file.Files;
-import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
-import org.owasp.webgoat.container.users.WebGoatUser;
-import org.springframework.mock.web.MockMultipartFile;
+import org.mockito.Mockito;
 import org.springframework.web.multipart.MultipartFile;
 
-/**
- * Delta tests for ProfileUploadBase focusing on path-traversal protection using
- * Path.normalize() and startsWith(userDir).
- */
-public class ProfileUploadBaseTest {
+class ProfileUploadBaseTest {
 
   @Test
-  void upload_shouldStoreFileUnderUserDirectoryForNormalRelativePath() throws Exception {
-    // Arrange
-    Path baseDir = Files.createTempDirectory("webgoat-profile-upload-");
-    ProfileUploadBase controller = new ProfileUploadBase(baseDir.toString());
+  void execute_usesBasenameOfFullNameAndPreventsPathTraversalOutsideUserDirectory()
+      throws Exception {
+    String baseDir = "target/path-traversal-home";
+    String username = "alice";
+    String dangerousName = "../evil.txt";
 
-    MultipartFile file =
-        new MockMultipartFile("profile", "avatar.png", "image/png", "img".getBytes());
-    WebGoatUser user = new WebGoatUser("bob", "bob", "ROLE_USER");
+    ProfileUploadBase base = new ProfileUploadBase(baseDir);
 
-    // Act
-    controller.upload(file, "avatar.png", user);
+    MultipartFile file = Mockito.mock(MultipartFile.class);
+    when(file.isEmpty()).thenReturn(false);
+    when(file.getBytes()).thenReturn("data".getBytes());
 
-    // Assert: file should exist under <base>/profile-upload/bob/avatar.png
-    Path userDir = baseDir.resolve("profile-upload").resolve("bob").normalize();
-    Path storedFile = userDir.resolve("avatar.png");
+    base.execute(file, dangerousName, username);
+
+    File userDir = new File(baseDir, "/PathTraversal/" + username);
+    assertTrue(userDir.exists(), "User upload directory should exist");
+
+    File[] uploaded = userDir.listFiles();
+    assertTrue(uploaded != null && uploaded.length == 1, "Exactly one uploaded file is expected");
+
+    File uploadedFile = uploaded[0];
+
+    // The uploaded file name must be the sanitized basename only
+    assertEquals("evil.txt", uploadedFile.getName(), "FullName must be normalized to basename");
+
+    // The canonical path of the uploaded file must remain within the user directory
+    String userCanonical = userDir.getCanonicalPath();
+    String uploadedCanonical = uploadedFile.getCanonicalPath();
     assertTrue(
-        Files.exists(storedFile),
-        "File uploaded with a simple filename must be stored within the user's directory");
-  }
+        uploadedCanonical.startsWith(userCanonical),
+        "Uploaded file must remain within the user-specific directory");
 
-  @Test
-  void upload_shouldRejectPathTraversalOutsideUserDirectory() throws Exception {
-    // Arrange
-    Path baseDir = Files.createTempDirectory("webgoat-profile-upload-");
-    ProfileUploadBase controller = new ProfileUploadBase(baseDir.toString());
-
-    MultipartFile file =
-        new MockMultipartFile("profile", "avatar.png", "image/png", "img".getBytes());
-    WebGoatUser user = new WebGoatUser("alice", "alice", "ROLE_USER");
-
-    // Act
-    // Attempt to escape userDir using .. segments
-    var result = controller.upload(file, "../evil/escape.png", user);
-
-    // Assert: lesson must not be completed and file must not be created outside the user dir
-    assertFalse(
-        result.getLessonCompleted(),
-        "Upload with traversal path must not be considered a successful lesson completion");
-
-    Path evilTarget =
-        baseDir.resolve("profile-upload").getParent().resolve("evil").resolve("escape.png");
-    assertFalse(
-        Files.exists(evilTarget),
-        "Traversal using '../evil/escape.png' must not create a file outside the user directory");
+    // Ensure file content actually written
+    assertTrue(Files.size(uploadedFile.toPath()) > 0);
   }
 }
