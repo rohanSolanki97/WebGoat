@@ -51,10 +51,11 @@ public class SqlInjectionChallenge implements AssignmentEndpoint {
     if (attackResult == null) {
 
       try (Connection connection = dataSource.getConnection()) {
+        // Remediation: Use PreparedStatement with parameter binding to prevent SQL Injection
         String checkUserQuery =
-            "select userid from sql_challenge_users where userid = ?"; // Fixed line
-        PreparedStatement statement = connection.prepareStatement(checkUserQuery); // Fixed line
-        statement.setString(1, username); // Added line
+            "select userid from sql_challenge_users where userid = ?";
+        PreparedStatement statement = connection.prepareStatement(checkUserQuery);
+        statement.setString(1, username);
         ResultSet resultSet = statement.executeQuery();
 
         if (resultSet.next()) {

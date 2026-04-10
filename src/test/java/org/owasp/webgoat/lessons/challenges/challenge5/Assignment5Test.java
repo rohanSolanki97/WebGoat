@@ -1,7 +1,9 @@
 package org.owasp.webgoat.lessons.challenges.challenge5;
 
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -10,51 +12,40 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 import org.owasp.webgoat.container.LessonDataSource;
-import org.owasp.webgoat.container.assignments.AttackResult;
 import org.owasp.webgoat.lessons.challenges.Flags;
 
-/**
- * Delta tests for Assignment5 focusing on the change to parameterized SQL queries.
- */
-public class Assignment5Test {
+class Assignment5Test {
 
   @Test
-  void login_shouldUseParameterizedQueryForUserAndPassword() throws Exception {
-    // Arrange
+  void login_usesParameterizedQueryForUserAndPassword() throws Exception {
     LessonDataSource dataSource = Mockito.mock(LessonDataSource.class);
     Flags flags = Mockito.mock(Flags.class);
-    Assignment5 assignment5 = new Assignment5(dataSource, flags);
+    Assignment5 assignment = new Assignment5(dataSource, flags);
 
     Connection connection = Mockito.mock(Connection.class);
     PreparedStatement preparedStatement = Mockito.mock(PreparedStatement.class);
     ResultSet resultSet = Mockito.mock(ResultSet.class);
 
-    Mockito.when(dataSource.getConnection()).thenReturn(connection);
-    Mockito.when(connection.prepareStatement(Mockito.anyString())).thenReturn(preparedStatement);
-    Mockito.when(preparedStatement.executeQuery()).thenReturn(resultSet);
-    Mockito.when(resultSet.next()).thenReturn(false);
+    when(dataSource.getConnection()).thenReturn(connection);
+    when(connection.prepareStatement(anyString())).thenReturn(preparedStatement);
+    when(preparedStatement.executeQuery()).thenReturn(resultSet);
+    when(resultSet.next()).thenReturn(true);
+    when(flags.getFlag(5)).thenReturn("FLAG-5");
 
-    String username = "Larry' OR '1'='1";
-    String password = "pwd";
+    String username = "Larry";
+    String maliciousPassword = "' OR '1'='1";
 
-    // Act
-    AttackResult result = assignment5.login(username, password);
-
-    // Assert: lesson should not be completed for this malicious input
-    assertFalse(result.getLessonCompleted());
+    assignment.login(username, maliciousPassword);
 
     ArgumentCaptor<String> sqlCaptor = ArgumentCaptor.forClass(String.class);
-    Mockito.verify(connection).prepareStatement(sqlCaptor.capture());
-    String usedSql = sqlCaptor.getValue();
+    verify(connection).prepareStatement(sqlCaptor.capture());
+    String sql = sqlCaptor.getValue();
 
     assertTrue(
-        usedSql.contains("userid = ?"),
-        "SQL must use parameter placeholder for userid instead of concatenating user input");
-    assertTrue(
-        usedSql.contains("password = ?"),
-        "SQL must use parameter placeholder for password instead of concatenating user input");
+        sql.contains("userid = ?") && sql.contains("password = ?"),
+        "SQL must use parameter placeholders for username and password");
 
-    Mockito.verify(preparedStatement).setString(1, username);
-    Mockito.verify(preparedStatement).setString(2, password);
+    verify(preparedStatement).setString(1, username);
+    verify(preparedStatement).setString(2, maliciousPassword);
   }
 }

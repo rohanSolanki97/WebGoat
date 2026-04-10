@@ -1,36 +1,31 @@
 package org.owasp.webgoat.container;
 
-import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import org.owasp.webgoat.container.users.UserService;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
 
-/**
- * Delta tests for WebSecurityConfig focusing on:
- * - Use of BCryptPasswordEncoder instead of NoOpPasswordEncoder.
- *
- * NOTE: The validator reported a syntax issue in WebSecurityConfig; these tests assume that
- * the updated file compiles after that syntax is corrected.
- */
-public class WebSecurityConfigTest {
+class WebSecurityConfigTest {
 
   @Test
-  void passwordEncoder_shouldReturnBCryptPasswordEncoder() {
-    // Arrange
+  void passwordEncoder_returnsBCryptPasswordEncoderAndHashesPassword() {
     UserService userService = Mockito.mock(UserService.class);
     WebSecurityConfig config = new WebSecurityConfig(userService);
 
-    // Act
-    BCryptPasswordEncoder encoder = config.passwordEncoder();
+    PasswordEncoder encoder = config.passwordEncoder();
 
-    // Assert
-    assertNotNull(encoder, "passwordEncoder bean must not be null");
-    String hash = encoder.encode("password");
     assertTrue(
-        encoder.matches("password", hash),
-        "BCryptPasswordEncoder must correctly verify hashed password");
+        encoder instanceof BCryptPasswordEncoder,
+        "passwordEncoder bean must be an instance of BCryptPasswordEncoder");
+
+    String rawPassword = "Secret123!";
+    String encoded = encoder.encode(rawPassword);
+
+    assertNotEquals(rawPassword, encoded);
+    assertTrue(encoder.matches(rawPassword, encoded));
   }
 }
