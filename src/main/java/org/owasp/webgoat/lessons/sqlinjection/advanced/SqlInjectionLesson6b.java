@@ -12,7 +12,7 @@ import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
-import lombok.extern.slf4j.Slf4j; // Added for secure logging
+import lombok.extern.slf4j.Slf4j; // Already present
 import org.owasp.webgoat.container.LessonDataSource;
 import org.owasp.webgoat.container.assignments.AssignmentEndpoint;
 import org.owasp.webgoat.container.assignments.AttackResult;
@@ -22,7 +22,7 @@ import org.springframework.web.bind.annotation.ResponseBody;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@Slf4j // Added for secure logging
+@Slf4j // Already present
 public class SqlInjectionLesson6b implements AssignmentEndpoint {
   private final LessonDataSource dataSource;
 
@@ -54,15 +54,13 @@ public class SqlInjectionLesson6b implements AssignmentEndpoint {
           password = results.getString("password");
         }
       } catch (SQLException sqle) {
-        // Remediation: Replaced printStackTrace with secure logging.
-        // Log the exception for debugging but avoid exposing stack traces directly.
-        log.error("SQL Exception in getPassword: {}", sqle.getMessage());
+        // Remediation: Replaced printStackTrace with secure logging to avoid information exposure
+        log.error("SQL Exception occurred while fetching password", sqle);
         // do nothing
       }
     } catch (Exception e) {
-      // Remediation: Replaced printStackTrace with secure logging.
-      // Log the exception for debugging but avoid exposing stack traces directly.
-      log.error("General Exception in getPassword: {}", e.getMessage());
+      // Remediation: Replaced printStackTrace with secure logging to avoid information exposure
+      log.error("Exception occurred in getPassword method", e);
       // do nothing
     }
     return (password);

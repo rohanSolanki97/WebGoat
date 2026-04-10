@@ -1,15 +1,28 @@
-// Simple, configurable accessor to avoid hardcoded secrets in source code.
-// In a real deployment, this should be wired to a secure configuration source
-// (environment variables, injected config object, or a secrets manager).
-function getJwtDemoPassword() {
-    // Prefer an externally provided value; fall back to a non-secret placeholder for demos.
-    // NOTE: Do NOT put real secrets here; use environment/config at runtime.
-    if (typeof window !== 'undefined' && window.webgoat && window.webgoat.jwtDemoPassword) {
-        return window.webgoat.jwtDemoPassword;
+// Ensure a global configuration object exists for providing non-hardcoded secrets.
+// In the real system this should be populated from a secure source (env, vault, etc.),
+// NOT from inline literals. This stub is here only to avoid breaking existing flows
+// when configuration is missing.
+window.webgoat = window.webgoat || {};
+webgoat.config = webgoat.config || {};
+// WARNING: Do not hardcode secrets here in production. Use environment/secret management.
+// Example (non-production):
+//   webgoat.config.jwtPassword = window.__JWT_PASSWORD_FROM_ENV__;
+
+/**
+ * Retrieve the JWT password from a secure configuration source.
+ * This function centralizes access so that:
+ * - No secrets are inlined in code;
+ * - Future migrations to vaults/env vars require changes in only one place.
+ */
+function getJwtPassword() {
+    // Prefer an explicitly provided secure config value, if present.
+    if (webgoat.config && typeof webgoat.config.jwtPassword === 'string') {
+        return webgoat.config.jwtPassword;
     }
 
-    // Fallback placeholder that is NOT a production secret.
-    return 'CHANGE_ME_IN_CONFIG';
+    // Fallback: no password available. In a real deployment, you should fail closed here.
+    // We keep a null/empty fallback to preserve lesson wiring without embedding a secret.
+    return '';
 }
 
 $(document).ready(function () {
@@ -17,15 +30,15 @@ $(document).ready(function () {
 });
 
 function login(user) {
+    const password = getJwtPassword();
+
+    // It is strongly recommended that 'password' be non-empty and
+    // provided from a secure configuration source.
     $.ajax({
         type: 'POST',
         url: 'JWT/refresh/login',
         contentType: "application/json",
-        data: JSON.stringify({
-            user: user,
-            // Previously hard-coded password was here; now retrieved via config accessor.
-            password: getJwtDemoPassword()
-        })
+        data: JSON.stringify({ user: user, password: password })
     }).success(
         function (response) {
             localStorage.setItem('access_token', response['access_token']);
@@ -39,7 +52,7 @@ webgoat.customjs.addBearerToken = function () {
     var headers_to_set = {};
     headers_to_set['Authorization'] = 'Bearer ' + localStorage.getItem('access_token');
     return headers_to_set;
-};
+}
 
 //Dev comment: Temporarily disabled from page we need to work out the refresh token flow but for now we can go live with the checkout page
 function newToken() {
