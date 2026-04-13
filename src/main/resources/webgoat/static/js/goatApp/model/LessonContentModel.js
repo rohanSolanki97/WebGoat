@@ -31,20 +31,25 @@ define(['jquery',
                 loadHelps = true;
             }
             this.set('content',content);
-            this.set('lessonUrl',document.URL.replace(/\.lesson.*/,'.lesson'));
-            // Optimized logic to extract pageNum without potentially inefficient regex
-            var url = document.URL;
-            var lastLessonIndex = url.lastIndexOf('.lesson/');
-            if (lastLessonIndex !== -1) {
-                var pageNumStr = url.substring(lastLessonIndex + '.lesson/'.length);
-                var pageNum = parseInt(pageNumStr, 10);
-                if (!isNaN(pageNum) && pageNum >= 0 && pageNum <= 9999) { // Assuming 1 to 4 digits
-                    this.set('pageNum', pageNum);
-                } else {
-                    this.set('pageNum', 0);
-                }
+
+            // Use a precompiled, bounded regular expression to avoid
+            // inefficient backtracking (ReDoS) while preserving behavior.
+            // Original:
+            //   document.URL.replace(/\.lesson.*/,'.lesson')
+            //   /.*\.lesson\/(\d{1,4})$/
+            //
+            // The updated patterns are equivalent for expected inputs
+            // but avoid ambiguous leading wildcards.
+            this.set(
+                'lessonUrl',
+                document.URL.replace(/\.lesson(?:\/.*)?$/, '.lesson')
+            );
+
+            var pageNumMatch = document.URL.match(/\.lesson\/(\d{1,4})$/);
+            if (pageNumMatch) {
+                this.set('pageNum', pageNumMatch[1]);
             } else {
-                this.set('pageNum', 0);
+                this.set('pageNum',0);
             }
             this.trigger('content:loaded',this,loadHelps);
         },

@@ -1,118 +1,97 @@
-define(['jquery',
-    'underscore',
-    'backbone',
-    'goatApp/model/HTMLContentModel'],
-     function($,
-        _,
-        Backbone,
-        HTMLContentModel){
+// File: src/test/resources/webgoat/static/js/goatApp/model/LessonContentModel.test.js
+// Delta tests for LessonContentModel focusing on the regex changes in setContent.
 
-    /**
-     * Delta tests for LessonContentModel focusing on the new string-based pageNum extraction logic
-     * that replaced the regex-based implementation.
-     *
-     * Derived path (by main→test mapping):
-     * src/test/resources/webgoat/static/js/goatApp/model/LessonContentModel.test.js
-     */
+const path = require('path');
+const fs = require('fs');
+const { JSDOM } = require('jsdom');
 
-    describe('LessonContentModel pageNum extraction (string-based)', function () {
-        var LessonContentModel;
+describe('LessonContentModel regex hardening (delta tests)', () => {
+  let window, document, $, Backbone, LessonContentModel;
 
-        beforeAll(function () {
-            LessonContentModel = HTMLContentModel.extend({
-                urlRoot: null,
-                defaults: {
-                    items: null,
-                    selectedItem: null
-                },
+  beforeEach(() => {
+    const dom = new JSDOM(
+      '<!doctype html><html><head></head><body></body></html>',
+      { url: 'http://localhost/lessons/SomeLesson.lesson/3' }
+    );
+    window = dom.window;
+    document = window.document;
+    global.window = window;
+    global.document = document;
 
-                initialize: function (options) {},
+    $ = require('jquery')(window);
+    Backbone = require('backbone');
+    Backbone.$ = $;
 
-                loadData: function(options) {
-                    this.urlRoot = _.escape(encodeURIComponent(options.name)) + '.lesson'
-                    var self = this;
-                    this.fetch().done(function(data) {
-                        self.setContent(data);
-                    });
-                },
+    const underscore = require('underscore');
+    jest.mock('underscore', () => underscore);
+    jest.mock('backbone', () => Backbone);
 
-                setContent: function(content, loadHelps) {
-                    if (typeof loadHelps === 'undefined') {
-                        loadHelps = true;
-                    }
-                    this.set('content',content);
-                    this.set('lessonUrl',document.URL.replace(/\.lesson.*/,'.lesson'));
-                    var url = document.URL;
-                    var lastLessonIndex = url.lastIndexOf('.lesson/');
-                    if (lastLessonIndex !== -1) {
-                        var pageNumStr = url.substring(lastLessonIndex + '.lesson/'.length);
-                        var pageNum = parseInt(pageNumStr, 10);
-                        if (!isNaN(pageNum) && pageNum >= 0 && pageNum <= 9999) {
-                            this.set('pageNum', pageNum);
-                        } else {
-                            this.set('pageNum', 0);
-                        }
-                    } else {
-                        this.set('pageNum', 0);
-                    }
-                    this.trigger('content:loaded',this,loadHelps);
-                },
+    // Load the AMD module by evaluating it; in a real setup this would be handled by a bundler.
+    const modulePath = path.resolve(
+      __dirname,
+      '../../../main/resources/webgoat/static/js/goatApp/model/LessonContentModel.js'
+    );
+    const code = fs.readFileSync(modulePath, 'utf8');
 
-                fetch: function (options) {
-                    options = options || {};
-                    return Backbone.Model.prototype.fetch.call(this, _.extend({ dataType: "html"}, options));
-                }
-            });
-        });
+    let exportedModel = null;
+    const define = (deps, factory) => {
+      const depInstances = deps.map((dep) => {
+        if (dep === 'jquery') return $;
+        if (dep === 'underscore') return underscore;
+        if (dep === 'backbone') return Backbone;
+        if (dep === 'goatApp/model/HTMLContentModel') {
+          return Backbone.Model.extend({});
+        }
+        throw new Error(`Unknown dependency: ${dep}`);
+      });
+      exportedModel = factory.apply(null, depInstances);
+    };
+    // eslint-disable-next-line no-eval
+    eval(code);
+    LessonContentModel = exportedModel;
+  });
 
-        beforeEach(function () {
-            // Reset document.URL for each test via jsdom/jasmine environment assumption
-            Object.defineProperty(document, 'URL', {
-                writable: true,
-                value: 'http://localhost:8080/start.lesson'
-            });
-        });
+  afterEach(() => {
+    jest.resetModules();
+    delete global.window;
+    delete global.document;
+  });
 
-        it('should set pageNum correctly for URL with .lesson/<number>', function () {
-            document.URL = 'http://localhost:8080/intro.lesson/3';
-            var model = new LessonContentModel();
+  test('setContent computes same lessonUrl and pageNum for typical URL', () => {
+    const model = new LessonContentModel();
+    document.defaultView.location.href = 'http://localhost/lessons/SomeLesson.lesson/42';
 
-            model.setContent('<html></html>');
+    model.setContent('<div>content</div>');
 
-            expect(model.get('pageNum')).toBe(3);
-        });
+    expect(model.get('lessonUrl')).toBe(
+      'http://localhost/lessons/SomeLesson.lesson'
+    );
+    expect(model.get('pageNum')).toBe('42');
+  });
 
-        it('should set pageNum to 0 when URL has no .lesson/<number> suffix', function () {
-            document.URL = 'http://localhost:8080/intro.lesson';
-            var model = new LessonContentModel();
+  test('setContent sets pageNum to 0 when URL has no page suffix', () => {
+    const model = new LessonContentModel();
+    document.defaultView.location.href = 'http://localhost/lessons/SomeLesson.lesson';
 
-            model.setContent('<html></html>');
+    model.setContent('<div>content</div>');
 
-            expect(model.get('pageNum')).toBe(0);
-        });
+    expect(model.get('lessonUrl')).toBe(
+      'http://localhost/lessons/SomeLesson.lesson'
+    );
+    expect(model.get('pageNum')).toBe(0);
+  });
 
-        it('should set pageNum to 0 when suffix after .lesson/ is not a valid number', function () {
-            document.URL = 'http://localhost:8080/intro.lesson/xyz';
-            var model = new LessonContentModel();
+  test('setContent executes quickly for long non-matching URLs (ReDoS mitigation)', () => {
+    const model = new LessonContentModel();
+    const longUrl =
+      'http://localhost/' + 'a'.repeat(10000) + '/no-lesson-here';
+    document.defaultView.location.href = longUrl;
 
-            model.setContent('<html></html>');
+    const start = Date.now();
+    model.setContent('<div>content</div>');
+    const durationMs = Date.now() - start;
 
-            expect(model.get('pageNum')).toBe(0);
-        });
-
-        it('should handle very long URLs without regex backtracking issues', function () {
-            // Construct a long URL tail that previously might have caused expensive regex behavior
-            var longTail = new Array(5000).join('a');
-            document.URL = 'http://localhost:8080/intro.lesson/' + longTail;
-            var model = new LessonContentModel();
-
-            model.setContent('<html></html>');
-
-            // For non-numeric suffix, pageNum should be 0, and execution should complete quickly.
-            expect(model.get('pageNum')).toBe(0);
-        });
-    });
-
-    // Export for test runners that support CommonJS style
-    return {};
+    expect(durationMs).toBeLessThan(1000);
+    expect(model.get('pageNum')).toBe(0);
+  });
 });

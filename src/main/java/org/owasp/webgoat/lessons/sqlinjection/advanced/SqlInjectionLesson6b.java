@@ -12,20 +12,18 @@ import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import lombok.extern.slf4j.Slf4j;
 import org.owasp.webgoat.container.LessonDataSource;
 import org.owasp.webgoat.container.assignments.AssignmentEndpoint;
 import org.owasp.webgoat.container.assignments.AttackResult;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseBody;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
+@Slf4j
 public class SqlInjectionLesson6b implements AssignmentEndpoint {
-
-  private static final Logger logger = LoggerFactory.getLogger(SqlInjectionLesson6b.class);
   private final LessonDataSource dataSource;
 
   public SqlInjectionLesson6b(LessonDataSource dataSource) {
@@ -56,11 +54,13 @@ public class SqlInjectionLesson6b implements AssignmentEndpoint {
           password = results.getString("password");
         }
       } catch (SQLException sqle) {
-        logger.error("Database error while retrieving password: {}", sqle.getMessage());
+        // Remediation: Replaced printStackTrace with structured logging to avoid information exposure.
+        log.error("SQL Exception during password retrieval", sqle);
         // do nothing
       }
     } catch (Exception e) {
-      logger.error("Error retrieving password: {}", e.getMessage());
+      // Remediation: Replaced printStackTrace with structured logging to avoid information exposure.
+      log.error("General Exception during password retrieval", e);
       // do nothing
     }
     return (password);

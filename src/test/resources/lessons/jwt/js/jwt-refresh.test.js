@@ -1,56 +1,114 @@
-/**
- * Delta tests for jwt-refresh.js focusing on:
- * - Ensuring no hardcoded password is present in the login payload.
- * - Verifying that the AJAX data sent by login(user) does not contain a password field.
- *
- * Derived path (by main→test mapping):
- * src/test/resources/lessons/jwt/js/jwt-refresh.test.js
- */
+// File: src/test/resources/lessons/jwt/js/jwt-refresh.test.js
+// Delta tests for jwt-refresh.js focusing on:
+// - Removal of hard-coded password from login payload.
+// - Correct use of response tokens in login and newToken flows.
 
-const $ = require('jquery');
+const path = require('path');
+const fs = require('fs');
+const { JSDOM } = require('jsdom');
 
-describe('jwt-refresh login security behavior', () => {
+describe('jwt-refresh.js security remediation (delta tests)', () => {
+  let window, document, $, ajaxMock;
+
+  const loadScript = () => {
+    const scriptPath = path.resolve(
+      __dirname,
+      '../../../main/resources/lessons/jwt/js/jwt-refresh.js'
+    );
+    const code = fs.readFileSync(scriptPath, 'utf8');
+    // eslint-disable-next-line no-eval
+    eval(code);
+  };
+
   beforeEach(() => {
-    // Reset any previous ajax mocks
-    jest.clearAllMocks();
+    const dom = new JSDOM(
+      '<!doctype html><html><head></head><body></body></html>',
+      { url: 'http://localhost/' }
+    );
+    window = dom.window;
+    document = window.document;
+    global.window = window;
+    global.document = document;
+    global.localStorage = window.localStorage;
+
+    $ = require('jquery')(window);
+    global.$ = $;
+
+    global.webgoat = {
+      currentUser: { username: 'Alice' },
+      customjs: {}
+    };
+
+    ajaxMock = jest.spyOn($, 'ajax').mockImplementation(() => ({
+      success: (cb) => {
+        cb({
+          access_token: 'ACCESS_FROM_SERVER',
+          refresh_token: 'REFRESH_FROM_SERVER'
+        });
+        return { success: () => {} };
+      }
+    }));
   });
 
-  test('login should not send hardcoded password in AJAX payload', () => {
-    // Arrange
-    // Mock $.ajax to capture its options without performing a real request
-    const ajaxSpy = jest.spyOn($, 'ajax').mockImplementation((options) => {
-      // Simulate jQuery's promise-like interface
-      return {
-        success: (cb) => {
-          cb({ access_token: 'at', refresh_token: 'rt' });
-          return this;
-        },
-      };
-    });
+  afterEach(() => {
+    jest.restoreAllMocks();
+    delete global.$;
+    delete global.webgoat;
+    delete global.window;
+    delete global.document;
+    delete global.localStorage;
+  });
 
-    // Inline minimal implementation from updated jwt-refresh.js
-    function login(user) {
-      $.ajax({
-        type: 'POST',
-        url: 'JWT/refresh/login',
-        contentType: 'application/json',
-        data: JSON.stringify({ user: user }),
-      }).success(function (response) {
-        localStorage.setItem('access_token', response['access_token']);
-        localStorage.setItem('refresh_token', response['refresh_token']);
-      });
-    }
+  test('login does not send hard-coded password and uses credentialHint instead', () => {
+    loadScript();
 
-    // Act
-    login('Jerry');
+    expect(ajaxMock).toHaveBeenCalledTimes(1);
+    const call = ajaxMock.mock.calls[0][0];
+    expect(call.url).toBe('JWT/refresh/login');
 
-    // Assert
-    expect(ajaxSpy).toHaveBeenCalledTimes(1);
-    const callArgs = ajaxSpy.mock.calls[0][0];
-    const payload = JSON.parse(callArgs.data);
+    const payload = JSON.parse(call.data);
+    expect(payload.user).toBe('Alice');
+    expect(payload.credentialHint).toBe('jwt-refresh-flow');
+    expect(payload.password).toBeUndefined();
 
-    // Ensure that only 'user' is present in the JSON payload and no password is sent
-    expect(payload).toHaveProperty('user', 'Jerry');
-    expect(payload).not.toHaveProperty('password');
+    expect(localStorage.getItem('access_token')).toBe('ACCESS_FROM_SERVER');
+    expect(localStorage.getItem('refresh_token')).toBe('REFRESH_FROM_SERVER');
+  });
+
+  test('newToken uses stored refresh_token and updates tokens from server response', () => {
+    localStorage.setItem('access_token', 'OLD_ACCESS');
+    localStorage.setItem('refresh_token', 'OLD_REFRESH');
+
+    loadScript();
+
+    ajaxMock.mockReset();
+    ajaxMock.mockImplementation(() => ({
+      success: (cb) => {
+        cb({
+          access_token: 'NEW_ACCESS',
+          refresh_token: 'NEW_REFRESH'
+        });
+        return { success: () => {} };
+      }
+    }));
+
+    window.newToken();
+
+    expect(ajaxMock).toHaveBeenCalledTimes(1);
+    const call = ajaxMock.mock.calls[0][0];
+    const body = JSON.parse(call.data);
+    expect(body.refreshToken).toBe('OLD_REFRESH');
+
+    expect(localStorage.getItem('access_token')).toBe('NEW_ACCESS');
+    expect(localStorage.getItem('refresh_token')).toBe('NEW_REFRESH');
+  });
+
+  test('addBearerToken returns Authorization header using access_token', () => {
+    loadScript();
+
+    localStorage.setItem('access_token', 'TOKEN123');
+
+    const headers = webgoat.customjs.addBearerToken();
+    expect(headers.Authorization).toBe('Bearer TOKEN123');
   });
 });
