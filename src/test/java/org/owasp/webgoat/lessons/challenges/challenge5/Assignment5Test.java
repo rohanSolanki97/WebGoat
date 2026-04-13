@@ -1,60 +1,70 @@
-// batch_id: BATCH-002
-// status: IN_PROGRESS
-// test_file_path: src/test/java/org/owasp/webgoat/lessons/challenges/challenge5/Assignment5Test.java
 package org.owasp.webgoat.lessons.challenges.challenge5;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.mockito.Mockito.when;
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.*;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
-import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
-import org.mockito.Mockito;
 import org.owasp.webgoat.container.LessonDataSource;
 import org.owasp.webgoat.container.assignments.AttackResult;
 import org.owasp.webgoat.lessons.challenges.Flags;
 
 /**
- * Delta tests for Assignment5 focusing on the change from concatenated SQL
- * to a parameterized PreparedStatement.
+ * Delta tests for Assignment5 focusing on the change from string-concatenated SQL
+ * to a parameterized PreparedStatement for the login query.
  */
-public class Assignment5Test {
+class Assignment5Test {
 
   @Test
-  @DisplayName("login uses parameterized query and binds username and password correctly")
-  void login_usesParameterizedPreparedStatementWithCorrectBindings() throws Exception {
-    LessonDataSource dataSource = Mockito.mock(LessonDataSource.class);
-    Connection connection = Mockito.mock(Connection.class);
-    PreparedStatement preparedStatement = Mockito.mock(PreparedStatement.class);
-    ResultSet resultSet = Mockito.mock(ResultSet.class);
-    Flags flags = Mockito.mock(Flags.class);
+  void login_usesParameterizedQueryAndBindsUserInputs() throws Exception {
+    LessonDataSource dataSource = mock(LessonDataSource.class);
+    Flags flags = mock(Flags.class);
+    Assignment5 assignment = new Assignment5(dataSource, flags);
+
+    Connection connection = mock(Connection.class);
+    PreparedStatement preparedStatement = mock(PreparedStatement.class);
+    ResultSet resultSet = mock(ResultSet.class);
 
     when(dataSource.getConnection()).thenReturn(connection);
-    when(connection.prepareStatement(Mockito.anyString())).thenReturn(preparedStatement);
+    when(connection.prepareStatement(anyString())).thenReturn(preparedStatement);
     when(preparedStatement.executeQuery()).thenReturn(resultSet);
     when(resultSet.next()).thenReturn(true);
-    when(flags.getFlag(5)).thenReturn("FLAG-5");
-
-    Assignment5 assignment5 = new Assignment5(dataSource, flags);
+    when(flags.getFlag(5)).thenReturn("FLAG5");
 
     String username = "Larry";
-    String password = "pwd' OR '1'='1";
-    AttackResult result = assignment5.login(username, password);
+    String password = "Secr3t!";
 
+    AttackResult result = assignment.login(username, password);
+
+    // Assert SQL is parameterized, not concatenated with user input
     ArgumentCaptor<String> sqlCaptor = ArgumentCaptor.forClass(String.class);
-    Mockito.verify(connection).prepareStatement(sqlCaptor.capture());
-    String usedSql = sqlCaptor.getValue();
+    verify(connection).prepareStatement(sqlCaptor.capture());
+    String sql = sqlCaptor.getValue();
     assertEquals(
         "select password from challenge_users where userid = ? and password = ?",
-        usedSql,
-        "SQL must use placeholders instead of string concatenation");
+        sql);
 
-    Mockito.verify(preparedStatement).setString(1, username);
-    Mockito.verify(preparedStatement).setString(2, password);
+    // Assert bound parameters match user-controlled input exactly
+    verify(preparedStatement).setString(1, username);
+    verify(preparedStatement).setString(2, password);
 
-    assertEquals("success", result.getLessonResultStatus().toString().toLowerCase());
+    assertTrue(result.getLessonCompleted());
+  }
+
+  @Test
+  void login_doesNotQueryDatabaseForNonLarryUser() throws Exception {
+    LessonDataSource dataSource = mock(LessonDataSource.class);
+    Flags flags = mock(Flags.class);
+    Assignment5 assignment = new Assignment5(dataSource, flags);
+
+    AttackResult result = assignment.login("Bob", "pwd");
+
+    assertFalse(result.getLessonCompleted());
+    // Critical: ensure no SQL is executed when the precondition (Larry) fails
+    verifyNoInteractions(dataSource);
   }
 }

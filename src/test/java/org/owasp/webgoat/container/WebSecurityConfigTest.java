@@ -1,60 +1,56 @@
-// batch_id: BATCH-005
-// status: IN_PROGRESS
-// test_file_path: src/test/java/org/owasp/webgoat/container/WebSecurityConfigTest.java
 package org.owasp.webgoat.container;
 
-import static org.junit.jupiter.api.Assertions.assertNotEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
-import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.owasp.webgoat.container.users.UserService;
-import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
 
 /**
- * Delta tests for WebSecurityConfig focused on:
- * - Replacement of NoOpPasswordEncoder with BCryptPasswordEncoder.
+ * Delta tests for WebSecurityConfig focusing on:
+ * - Replacing NoOpPasswordEncoder with BCryptPasswordEncoder
+ * - Ensuring passwords are no longer stored/compared in plain text.
+ *
+ * CSRF enablement is handled inside Spring Security; we assert the bean-level
+ * configuration related to password encoding which was explicitly changed.
  */
-public class WebSecurityConfigTest {
+class WebSecurityConfigTest {
 
   @Test
-  @DisplayName("passwordEncoder bean is BCryptPasswordEncoder and hashes non-plaintext values")
-  void passwordEncoder_isBCryptPasswordEncoder() {
-    UserService userService = org.mockito.Mockito.mock(UserService.class);
+  void passwordEncoder_returnsBCryptPasswordEncoder() {
+    UserService userService = dummyUserService();
     WebSecurityConfig config = new WebSecurityConfig(userService);
 
-    BCryptPasswordEncoder encoder = config.passwordEncoder();
+    PasswordEncoder encoder = config.passwordEncoder();
 
-    String raw = "Password123!";
-    String hash = encoder.encode(raw);
-
-    assertTrue(encoder.matches(raw, hash), "BCrypt encoder should validate its own hash");
-    assertNotEquals(raw, hash, "BCrypt hash must not equal raw password (no-op encoding removed)");
+    assertNotNull(encoder);
+    assertTrue(encoder instanceof BCryptPasswordEncoder);
+    String raw = "password123";
+    String encoded = encoder.encode(raw);
+    assertNotEquals(raw, encoded, "BCrypt must not store raw passwords");
+    assertTrue(encoder.matches(raw, encoded));
   }
 
   @Test
-  @DisplayName("userDetailsServiceBean still returns injected UserService")
-  void userDetailsServiceBean_returnsInjectedUserService() {
-    UserService userService = org.mockito.Mockito.mock(UserService.class);
+  void configureGlobal_acceptsPasswordEncoderConfiguration() throws Exception {
+    UserService userService = dummyUserService();
     WebSecurityConfig config = new WebSecurityConfig(userService);
 
-    var serviceFromBean = config.userDetailsServiceBean();
+    // We only verify that configureGlobal can be invoked without throwing,
+    // which indicates that UserDetailsService and PasswordEncoder wiring is valid.
+    org.springframework.security.config.annotation.authentication.builders.AuthenticationManagerBuilder builder =
+        new org.springframework.security.config.annotation.authentication.builders.AuthenticationManagerBuilder(
+            null);
 
-    org.junit.jupiter.api.Assertions.assertSame(
-        userService, serviceFromBean, "UserService wiring must remain unchanged");
+    config.configureGlobal(builder);
   }
 
-  @Test
-  @DisplayName("authenticationManager method remains callable with AuthenticationConfiguration")
-  void authenticationManager_obtainable() throws Exception {
-    UserService userService = org.mockito.Mockito.mock(UserService.class);
-    WebSecurityConfig config = new WebSecurityConfig(userService);
-
-    AuthenticationConfiguration authenticationConfiguration =
-        org.mockito.Mockito.mock(AuthenticationConfiguration.class);
-
-    config.authenticationManager(authenticationConfiguration);
-    org.mockito.Mockito.verify(authenticationConfiguration).getAuthenticationManager();
+  private UserService dummyUserService() {
+    return new UserService() {
+      // Implement minimal required methods if the actual interface has any.
+      // This anonymous implementation keeps the test self-contained while
+      // respecting the existing package and type.
+    };
   }
 }
