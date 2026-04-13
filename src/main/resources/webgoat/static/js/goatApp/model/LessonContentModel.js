@@ -19,7 +19,7 @@ define(['jquery',
         },
 
         loadData: function(options) {
-            this.urlRoot = _.escape(encodeURIComponent(options.name)) + '.lesson';
+            this.urlRoot = _.escape(encodeURIComponent(options.name)) + '.lesson'
             var self = this;
             this.fetch().done(function(data) {
                 self.setContent(data);
@@ -31,32 +31,21 @@ define(['jquery',
                 loadHelps = true;
             }
             this.set('content',content);
-
-            // Use a simple, linear replacement: find the first ".lesson" and replace the rest.
-            // This avoids a potentially inefficient regex like /\.lesson.*/.
-            var currentUrl = document.URL;
-            var lessonIndex = currentUrl.indexOf('.lesson');
-            if (lessonIndex !== -1) {
-                this.set('lessonUrl', currentUrl.substring(0, lessonIndex + '.lesson'.length));
-            } else {
-                this.set('lessonUrl', currentUrl);
-            }
-
-            // Replace complex regex /.*\.lesson\/(\d{1,4})$/ with a safe substring/indexOf approach.
-            // We only need to extract up to 4 digits after ".lesson/" at the end of the URL.
-            var pageNum = 0;
-            var lessonSegment = '.lesson/';
-            var segmentIndex = currentUrl.indexOf(lessonSegment);
-            if (segmentIndex !== -1) {
-                var start = segmentIndex + lessonSegment.length;
-                var suffix = currentUrl.substring(start);
-                var match = suffix.match(/^(\d{1,4})$/);
-                if (match) {
-                    pageNum = parseInt(match[1], 10);
+            this.set('lessonUrl',document.URL.replace(/\.lesson.*/,'.lesson'));
+            // Optimized logic to extract pageNum without potentially inefficient regex
+            var url = document.URL;
+            var lastLessonIndex = url.lastIndexOf('.lesson/');
+            if (lastLessonIndex !== -1) {
+                var pageNumStr = url.substring(lastLessonIndex + '.lesson/'.length);
+                var pageNum = parseInt(pageNumStr, 10);
+                if (!isNaN(pageNum) && pageNum >= 0 && pageNum <= 9999) { // Assuming 1 to 4 digits
+                    this.set('pageNum', pageNum);
+                } else {
+                    this.set('pageNum', 0);
                 }
+            } else {
+                this.set('pageNum', 0);
             }
-            this.set('pageNum', pageNum);
-
             this.trigger('content:loaded',this,loadHelps);
         },
 

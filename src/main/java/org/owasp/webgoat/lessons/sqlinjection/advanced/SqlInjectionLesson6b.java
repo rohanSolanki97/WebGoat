@@ -12,18 +12,20 @@ import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
-import lombok.extern.slf4j.Slf4j; // Added for logging
 import org.owasp.webgoat.container.LessonDataSource;
 import org.owasp.webgoat.container.assignments.AssignmentEndpoint;
 import org.owasp.webgoat.container.assignments.AttackResult;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseBody;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@Slf4j // Added for logging
 public class SqlInjectionLesson6b implements AssignmentEndpoint {
+
+  private static final Logger logger = LoggerFactory.getLogger(SqlInjectionLesson6b.class);
   private final LessonDataSource dataSource;
 
   public SqlInjectionLesson6b(LessonDataSource dataSource) {
@@ -54,16 +56,12 @@ public class SqlInjectionLesson6b implements AssignmentEndpoint {
           password = results.getString("password");
         }
       } catch (SQLException sqle) {
-        // Remediation 1: Replaced printStackTrace() with structured logging.
-        // Sensitive information (like the full stack trace) is now logged to the configured logger,
-        // not directly to standard output/error, preventing exposure to end-users.
-        log.error("SQL Exception in getPassword method: {}", sqle.getMessage());
-        // do nothing (as per original lesson logic)
+        logger.error("Database error while retrieving password: {}", sqle.getMessage());
+        // do nothing
       }
     } catch (Exception e) {
-      // Remediation 1: Replaced printStackTrace() with structured logging.
-      log.error("General Exception in getPassword method: {}", e.getMessage(), e);
-      // do nothing (as per original lesson logic)
+      logger.error("Error retrieving password: {}", e.getMessage());
+      // do nothing
     }
     return (password);
   }
