@@ -4,48 +4,66 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.File;
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
+import java.nio.file.Files;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
 import org.owasp.webgoat.container.users.WebGoatUser;
+import org.springframework.beans.factory.annotation.Value;
 
+/**
+ * Delta tests for BlindSendFileAssignment focusing on the sanitized directory construction
+ * in createSecretFileWithRandomContents() after the path traversal fix.
+ */
 class BlindSendFileAssignmentTest {
 
+  // Minimal CommentsCache stub to satisfy constructor; behavior is not under test here.
+  private static class NoOpCommentsCache extends CommentsCache {
+    // TODO: Provide minimal implementation if needed by the actual CommentsCache base class.
+  }
+
   @Test
-  void createSecretFileWithRandomContents_usesSanitizedUsernameBasenameAndPreventsTraversal()
-      throws NoSuchMethodException, InvocationTargetException, IllegalAccessException {
-    String baseDir = "target/webgoat-home";
-    CommentsCache commentsCache = Mockito.mock(CommentsCache.class);
-    BlindSendFileAssignment assignment = new BlindSendFileAssignment(baseDir, commentsCache);
+  void createSecretFileWithRandomContents_usesSanitizedUsernameAndCreatesSecretFile()
+      throws Exception {
+    File tempRoot = Files.createTempDirectory("webgoat-home-").toFile();
+    try {
+      String webGoatHomeDirectory = tempRoot.getAbsolutePath();
+      CommentsCache comments = new NoOpCommentsCache();
 
-    WebGoatUser user = Mockito.mock(WebGoatUser.class);
-    // Username contains traversal and multiple path components
-    Mockito.when(user.getUsername()).thenReturn("user/../evil/../../other");
+      BlindSendFileAssignment assignment =
+          new BlindSendFileAssignment(webGoatHomeDirectory, comments);
 
-    Method m =
-        BlindSendFileAssignment.class.getDeclaredMethod(
-            "createSecretFileWithRandomContents", WebGoatUser.class);
-    m.setAccessible(true);
-    m.invoke(assignment, user);
+      WebGoatUser user = new WebGoatUser();
+      // Username contains path traversal and slashes; only the last segment must be used.
+      user.setUsername("../some/../../evil");
 
-    File xxeRoot = new File(baseDir, "/XXE");
-    assertTrue(xxeRoot.exists(), "XXE base directory must exist");
+      assignment.initialize(user);
 
-    File[] dirs = xxeRoot.listFiles();
-    assertTrue(dirs != null && dirs.length == 1, "Exactly one user directory is expected");
+      File expectedDir = new File(webGoatHomeDirectory, "/XXE/evil");
+      assertTrue(expectedDir.exists(), "Sanitized user directory should exist under /XXE/evil");
 
-    File createdDir = dirs[0];
+      File[] files = expectedDir.listFiles();
+      assertTrue(files != null && files.length == 1, "Exactly one file should be created");
+      File secretFile = files[0];
 
-    // The directory name must be the sanitized basename of the username (FilenameUtils.getName)
-    // which for "user/../evil/../../other" resolves to "other"
-    assertEquals("other", createdDir.getName(), "Username used for directory must be sanitized");
+      assertEquals("secret.txt", secretFile.getName(), "Secret file must be named secret.txt");
+      assertTrue(secretFile.isFile(), "secret.txt must be a regular file");
+    } finally {
+      // Cleanup temp directory
+      deleteRecursively(tempRoot);
+    }
+  }
 
-    // And the resulting directory must remain under the XXE base directory
-    String xxeCanonical = xxeRoot.getCanonicalPath();
-    String createdCanonical = createdDir.getCanonicalPath();
-    assertTrue(
-        createdCanonical.startsWith(xxeCanonical),
-        "Created directory must remain within the XXE base directory");
+  private static void deleteRecursively(File file) {
+    if (file == null || !file.exists()) {
+      return;
+    }
+    if (file.isDirectory()) {
+      File[] children = file.listFiles();
+      if (children != null) {
+        for (File child : children) {
+          deleteRecursively(child);
+        }
+      }
+    }
+    file.delete();
   }
 }

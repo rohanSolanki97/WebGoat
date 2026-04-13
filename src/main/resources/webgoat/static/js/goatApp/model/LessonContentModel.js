@@ -19,7 +19,7 @@ define(['jquery',
         },
 
         loadData: function(options) {
-            this.urlRoot = _.escape(encodeURIComponent(options.name)) + '.lesson'
+            this.urlRoot = _.escape(encodeURIComponent(options.name)) + '.lesson';
             var self = this;
             this.fetch().done(function(data) {
                 self.setContent(data);
@@ -32,32 +32,27 @@ define(['jquery',
             }
             this.set('content',content);
 
-            // Use a simpler, linear-time-safe pattern for lessonUrl
-            // Previous: document.URL.replace(/\.lesson.*/,'.lesson')
-            // Now: use indexOf/slice to avoid regex backtracking.
-            var currentUrl = document.URL || '';
+            // Use a simple, linear replacement: find the first ".lesson" and replace the rest.
+            // This avoids a potentially inefficient regex like /\.lesson.*/.
+            var currentUrl = document.URL;
             var lessonIndex = currentUrl.indexOf('.lesson');
             if (lessonIndex !== -1) {
-                this.set('lessonUrl', currentUrl.slice(0, lessonIndex + '.lesson'.length));
+                this.set('lessonUrl', currentUrl.substring(0, lessonIndex + '.lesson'.length));
             } else {
                 this.set('lessonUrl', currentUrl);
             }
 
-            // Replace complex regex with index-based parsing to avoid ReDoS patterns
-            // Previous:
-            // if (/.*\.lesson\/(\d{1,4})$/.test(document.URL)) {
-            //     this.set('pageNum',document.URL.replace(/.*\.lesson\/(\d{1,4})$/,'$1'));
-            // } else {
-            //     this.set('pageNum',0);
-            // }
+            // Replace complex regex /.*\.lesson\/(\d{1,4})$/ with a safe substring/indexOf approach.
+            // We only need to extract up to 4 digits after ".lesson/" at the end of the URL.
             var pageNum = 0;
-            var lessonPathIndex = currentUrl.indexOf('.lesson/');
-            if (lessonPathIndex !== -1) {
-                var pagePart = currentUrl.substring(lessonPathIndex + '.lesson/'.length);
-                // only accept 1–4 digits
-                var pageMatch = pagePart.match(/^\d{1,4}$/);
-                if (pageMatch) {
-                    pageNum = parseInt(pageMatch[0], 10);
+            var lessonSegment = '.lesson/';
+            var segmentIndex = currentUrl.indexOf(lessonSegment);
+            if (segmentIndex !== -1) {
+                var start = segmentIndex + lessonSegment.length;
+                var suffix = currentUrl.substring(start);
+                var match = suffix.match(/^(\d{1,4})$/);
+                if (match) {
+                    pageNum = parseInt(match[1], 10);
                 }
             }
             this.set('pageNum', pageNum);

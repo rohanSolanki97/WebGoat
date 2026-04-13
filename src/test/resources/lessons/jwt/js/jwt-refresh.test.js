@@ -1,85 +1,100 @@
-// Resolved test path (derived from src/main/resources → src/test/resources):
 // src/test/resources/lessons/jwt/js/jwt-refresh.test.js
+// Delta tests for jwt-refresh.js focusing on removal of hard-coded password and the new
+// getConfiguredPassword()/login() behavior.
 
-const vm = require('vm');
 const fs = require('fs');
 const path = require('path');
+const { JSDOM } = require('jsdom');
 
-describe('jwt-refresh.js delta tests – password sourcing and login payload', () => {
-  let sandbox;
-  let ajaxMock;
+describe('jwt-refresh.js delta tests for password handling', () => {
+  let window;
+  let document;
+  let $;
 
-  function loadScript() {
-    sandbox = {
-      window: {},
-      localStorage: (function () {
-        let store = {};
-        return {
-          getItem: (k) => store[k] || null,
-          setItem: (k, v) => {
-            store[k] = String(v);
-          }
-        };
-      })(),
-      webgoat: { customjs: {} },
-      console
-    };
+  beforeEach(() => {
+    const dom = new JSDOM('<!doctype html><html><head></head><body></body></html>', {
+      url: 'http://localhost'
+    });
+    window = dom.window;
+    document = window.document;
+    global.window = window;
+    global.document = document;
+    global.localStorage = window.localStorage;
 
-    ajaxMock = jest.fn().mockReturnValue({ success: (cb) => cb({}) });
+    $ = require('jquery')(window);
+    global.$ = $;
+    global.jQuery = $;
 
-    const $ = function () {
-      return {
-        ready: (cb) => cb()
+    global.webgoat = { customjs: {} };
+
+    jest.spyOn($, 'ajax').mockImplementation((options) => {
+      const deferred = {
+        success: function (cb) {
+          cb({ access_token: 'token', refresh_token: 'rtoken' });
+          return deferred;
+        }
       };
-    };
-    $.ajax = ajaxMock;
-
-    sandbox.$ = $;
-    sandbox.jQuery = $;
+      return deferred;
+    });
 
     const scriptPath = path.resolve(
       __dirname,
-      '../../../../../main/resources/lessons/jwt/js/jwt-refresh.js'
+      '../../../../main/resources/lessons/jwt/js/jwt-refresh.js'
     );
-    const code = fs.readFileSync(scriptPath, 'utf8');
-    vm.runInNewContext(code, sandbox);
-  }
+    const scriptContent = fs.readFileSync(scriptPath, 'utf8');
 
-  beforeEach(() => {
-    loadScript();
+    expect(scriptContent).not.toMatch(/bm5nhSkxCXZkKRy4/);
+
+    // eslint-disable-next-line no-eval
+    eval(scriptContent);
   });
 
-  test('getJwtDemoPassword uses window.webgoat.jwtDemoPassword when present', () => {
-    sandbox.window.webgoat = sandbox.window.webgoat || {};
-    sandbox.window.webgoat.jwtDemoPassword = 'CONFIGURED_SECRET';
-
-    sandbox.login('TestUser');
-
-    expect(ajaxMock).toHaveBeenCalled();
-    const callArgs = ajaxMock.mock.calls[0][0];
-    const body = JSON.parse(callArgs.data);
-    expect(body.password).toBe('CONFIGURED_SECRET');
+  afterEach(() => {
+    if ($ && $.ajax && $.ajax.mockRestore) {
+      $.ajax.mockRestore();
+    }
   });
 
-  test('getJwtDemoPassword falls back to placeholder when config is absent', () => {
-    sandbox.window.webgoat = {};
+  test('getConfiguredPassword returns value from meta data-password when present', () => {
+    const meta = document.createElement('meta');
+    meta.setAttribute('name', 'webgoat-jwt-password');
+    meta.setAttribute('data-password', 'meta-secret');
+    document.head.appendChild(meta);
 
-    sandbox.login('TestUser');
+    const password = window.getConfiguredPassword
+      ? window.getConfiguredPassword()
+      : global.getConfiguredPassword();
 
-    expect(ajaxMock).toHaveBeenCalled();
-    const callArgs = ajaxMock.mock.calls[0][0];
-    const body = JSON.parse(callArgs.data);
-
-    expect(body.password).toBe('CHANGE_ME_IN_CONFIG');
-    expect(body.password).not.toBe('bm5nhSkxCXZkKRy4');
+    expect(password).toBe('meta-secret');
   });
 
-  test('login payload no longer contains old hardcoded password literal', () => {
-    sandbox.login('Jerry');
+  test("getConfiguredPassword returns 'CHANGE_ME_IN_CONFIG' when meta not present", () => {
+    const password = window.getConfiguredPassword
+      ? window.getConfiguredPassword()
+      : global.getConfiguredPassword();
 
-    expect(ajaxMock).toHaveBeenCalled();
-    const body = JSON.parse(ajaxMock.mock.calls[0][0].data);
+    expect(password).toBe('CHANGE_ME_IN_CONFIG');
+  });
 
-    expect(body.password).not.toBe('bm5nhSkxCXZkKRy4');
+  test('login passes result of getConfiguredPassword into ajax request payload', () => {
+    const meta = document.createElement('meta');
+    meta.setAttribute('name', 'webgoat-jwt-password');
+    meta.setAttribute('data-password', 'used-in-payload');
+    document.head.appendChild(meta);
+
+    const ajaxSpy = $.ajax;
+
+    const loginFn = window.login || global.login;
+    loginFn('Jerry');
+
+    expect(ajaxSpy).toHaveBeenCalledTimes(1);
+    const callArg = ajaxSpy.mock.calls[0][0];
+
+    expect(callArg.type).toBe('POST');
+    expect(callArg.url).toBe('JWT/refresh/login');
+
+    const payload = JSON.parse(callArg.data);
+    expect(payload.user).toBe('Jerry');
+    expect(payload.password).toBe('used-in-payload');
   });
 });
