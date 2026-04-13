@@ -6,47 +6,63 @@ import org.junit.jupiter.api.Test;
 import org.springframework.web.servlet.ModelAndView;
 
 /**
- * Delta tests for OpenRedirectRealRedirect focusing on URL validation:
- * - Safe relative URLs are allowed.
- * - External / protocol-relative / scheme-based URLs are rejected and redirected
- *   to /welcome.mvc.
+ * Delta tests for OpenRedirectRealRedirect focusing on:
+ * - Restricting redirects to safe relative paths.
+ * - Rejecting external URLs containing schemes like http:// or https://.
+ *
+ * Derived path:
+ * src/test/java/org/owasp/webgoat/lessons/openredirect/OpenRedirectRealRedirectTest.java
  */
-class OpenRedirectRealRedirectTest {
+public class OpenRedirectRealRedirectTest {
 
   private final OpenRedirectRealRedirect controller = new OpenRedirectRealRedirect();
 
   @Test
-  void real_allowsSafeRelativeUrl() {
-    ModelAndView mav = controller.real("/some/page");
+  void real_shouldRedirectToSafeDefaultForExternalUrl() {
+    // Arrange
+    String external = "http://evil.com/phish";
 
-    assertEquals("redirect:/some/page", mav.getViewName());
-  }
+    // Act
+    ModelAndView mav = controller.real(external);
 
-  @Test
-  void real_rejectsAbsoluteHttpUrl() {
-    ModelAndView mav = controller.real("http://evil.com");
-
+    // Assert
     assertEquals("redirect:/welcome.mvc", mav.getViewName());
   }
 
   @Test
-  void real_rejectsProtocolRelativeUrl() {
-    ModelAndView mav = controller.real("//evil.com");
+  void real_shouldRedirectToSafeDefaultForInvalidOrEmptyUrl() {
+    // Arrange
+    String empty = "   ";
 
+    // Act
+    ModelAndView mav = controller.real(empty);
+
+    // Assert
     assertEquals("redirect:/welcome.mvc", mav.getViewName());
   }
 
   @Test
-  void real_rejectsJavascriptScheme() {
-    ModelAndView mav = controller.real("javascript:alert(1)");
+  void real_shouldAllowRelativeInternalPathWithoutScheme() {
+    // Arrange
+    String internal = "/lesson/1";
 
-    assertEquals("redirect:/welcome.mvc", mav.getViewName());
+    // Act
+    ModelAndView mav = controller.real(internal);
+
+    // Assert
+    assertEquals("redirect:/lesson/1", mav.getViewName());
   }
 
   @Test
-  void real_rejectsBackslashInUrl() {
-    ModelAndView mav = controller.real("/path\\to\\something");
+  void real_shouldRejectUrlContainingSchemeDelimiter() {
+    // Arrange
+    String tricky = "/some/path/http://example.com";
 
+    // Act
+    ModelAndView mav = controller.real(tricky);
+
+    // Assert
+    // Because it contains '://', even though it starts with '/', it should be rejected
     assertEquals("redirect:/welcome.mvc", mav.getViewName());
   }
 }

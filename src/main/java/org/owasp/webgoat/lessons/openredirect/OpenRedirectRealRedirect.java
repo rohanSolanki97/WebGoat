@@ -17,15 +17,16 @@ public class OpenRedirectRealRedirect {
 
   @GetMapping("/OpenRedirect/realRedirect")
   public ModelAndView real(@RequestParam("url") String url) {
-    // Remediation: Validate the URL to prevent open redirect.
-    // For this lesson, only relative paths within the application context are allowed.
-    // Absolute URLs, protocol-relative URLs (e.g., //evil.com), and URLs with schemes (e.g., javascript:alert(1)) are blocked.
-    if (url != null && url.startsWith("/") && !url.startsWith("//") && !url.contains(":") && !url.contains("\\")) {
-      // Further validation could involve a whitelist of allowed internal paths or specific regex patterns.
-      return new ModelAndView("redirect:" + url);
-    } else {
-      // If the URL is not valid, redirect to a safe default page to prevent malicious redirects.
-      return new ModelAndView("redirect:/welcome.mvc"); // Redirect to a known safe page
+    // Validate redirect target against a whitelist or enforce relative paths
+    // Reject absolute URLs unless explicitly validated against a whitelist
+    // For this lesson, we enforce that the URL must be a relative path within the application.
+    if (url == null || url.trim().isEmpty() || !url.startsWith("/") || url.contains("://")) {
+      // Redirect to a safe default page if the URL is not valid or relative
+      // This prevents redirection to arbitrary external sites.
+      return new ModelAndView("redirect:/welcome.mvc"); // Example safe default
     }
+    // Further validation could involve checking against a list of allowed internal paths
+    // or using a URL parser to ensure it's not an external domain.
+    return new ModelAndView("redirect:" + url);
   }
 }

@@ -5,65 +5,85 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.File;
 import java.nio.file.Files;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 import org.owasp.webgoat.container.users.WebGoatUser;
-import org.springframework.beans.factory.annotation.Value;
 
 /**
- * Delta tests for BlindSendFileAssignment focusing on the sanitized directory construction
- * in createSecretFileWithRandomContents() after the path traversal fix.
+ * Delta tests for BlindSendFileAssignment focusing on path sanitization when constructing
+ * user-specific directories for the secret file.
+ *
+ * Derived path: src/test/java/org/owasp/webgoat/lessons/xxe/BlindSendFileAssignmentTest.java
  */
-class BlindSendFileAssignmentTest {
+public class BlindSendFileAssignmentTest {
 
-  // Minimal CommentsCache stub to satisfy constructor; behavior is not under test here.
-  private static class NoOpCommentsCache extends CommentsCache {
-    // TODO: Provide minimal implementation if needed by the actual CommentsCache base class.
+  @Test
+  void createSecretFileWithRandomContents_shouldSanitizeUsernameInDirectoryPath() throws Exception {
+    // Arrange
+    String baseDir = Files.createTempDirectory("webgoat-xxe-").toFile().getAbsolutePath();
+    CommentsCache commentsCache = Mockito.mock(CommentsCache.class);
+    BlindSendFileAssignment assignment = new BlindSendFileAssignment(baseDir, commentsCache);
+
+    WebGoatUser user = Mockito.mock(WebGoatUser.class);
+    Mockito.when(user.getUsername()).thenReturn("../evilUser");
+
+    // Act
+    // call initialize which in turn calls createSecretFileWithRandomContents(user)
+    assignment.initialize(user);
+
+    // Assert
+    // The directory path must not contain traversal sequences and should end with sanitized username
+    File expectedBase = new File(baseDir, "/XXE");
+    File[] childDirs = expectedBase.listFiles(File::isDirectory);
+    assertTrue(childDirs != null && childDirs.length == 1, "Exactly one user directory should be created");
+    File userDir = childDirs[0];
+
+    // Ensure directory name is the sanitized last path segment (no ../)
+    assertEquals("evilUser", userDir.getName());
+    // Ensure the directory is created under the intended base path
+    assertTrue(userDir.getCanonicalPath().startsWith(expectedBase.getCanonicalPath()));
+    // And that the secret.txt file exists within that sanitized directory
+    File secretFile = new File(userDir, "secret.txt");
+    assertTrue(secretFile.isFile());
   }
 
   @Test
-  void createSecretFileWithRandomContents_usesSanitizedUsernameAndCreatesSecretFile()
-      throws Exception {
-    File tempRoot = Files.createTempDirectory("webgoat-home-").toFile();
-    try {
-      String webGoatHomeDirectory = tempRoot.getAbsolutePath();
-      CommentsCache comments = new NoOpCommentsCache();
+  void initialize_shouldStoreFileContentsForUserInInternalMap() {
+    // Arrange
+    String baseDir = new File("target").getAbsolutePath();
+    CommentsCache commentsCache = Mockito.mock(CommentsCache.class);
+    BlindSendFileAssignment assignment = new BlindSendFileAssignment(baseDir, commentsCache);
 
-      BlindSendFileAssignment assignment =
-          new BlindSendFileAssignment(webGoatHomeDirectory, comments);
+    WebGoatUser user = Mockito.mock(WebGoatUser.class);
+    Mockito.when(user.getUsername()).thenReturn("alice");
 
-      WebGoatUser user = new WebGoatUser();
-      // Username contains path traversal and slashes; only the last segment must be used.
-      user.setUsername("../some/../../evil");
+    // Act
+    assignment.initialize(user);
 
-      assignment.initialize(user);
-
-      File expectedDir = new File(webGoatHomeDirectory, "/XXE/evil");
-      assertTrue(expectedDir.exists(), "Sanitized user directory should exist under /XXE/evil");
-
-      File[] files = expectedDir.listFiles();
-      assertTrue(files != null && files.length == 1, "Exactly one file should be created");
-      File secretFile = files[0];
-
-      assertEquals("secret.txt", secretFile.getName(), "Secret file must be named secret.txt");
-      assertTrue(secretFile.isFile(), "secret.txt must be a regular file");
-    } finally {
-      // Cleanup temp directory
-      deleteRecursively(tempRoot);
-    }
+    // Assert
+    // Internal mapping from user to file contents should contain an entry for this user
+    @SuppressWarnings("unchecked")
+    Map<WebGoatUser, String> userToFileContents =
+        (Map<WebGoatUser, String>)
+            TestReflectionUtils.getFieldValue(assignment, "userToFileContents");
+    assertTrue(userToFileContents.containsKey(user));
+    String contents = userToFileContents.get(user);
+    assertTrue(contents.startsWith("WebGoat 8.0 rocks..."), "Secret contents should match expected pattern");
   }
 
-  private static void deleteRecursively(File file) {
-    if (file == null || !file.exists()) {
-      return;
-    }
-    if (file.isDirectory()) {
-      File[] children = file.listFiles();
-      if (children != null) {
-        for (File child : children) {
-          deleteRecursively(child);
-        }
+  /**
+   * Minimal reflection helper to access private fields without modifying production code.
+   */
+  static class TestReflectionUtils {
+    static Object getFieldValue(Object target, String fieldName) {
+      try {
+        var field = target.getClass().getDeclaredField(fieldName);
+        field.setAccessible(true);
+        return field.get(target);
+      } catch (Exception e) {
+        throw new RuntimeException(e);
       }
     }
-    file.delete();
   }
 }

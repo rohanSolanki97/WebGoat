@@ -696,7 +696,7 @@ $.fn.ajaxSubmit = function(options) {
                         xhr.responseText = ta.value;
                         // support for XHR 'status' & 'statusText' emulation :
                         xhr.status = Number( ta.getAttribute('status') ) || xhr.status;
-                        xhr.statusText = ta.getAttribute('statusText') || xhr.statusText;
+                        xhr.statusText = ta.getAttribute('statusText') || ta.getAttribute('statusText');
                     }
                     else if (scr) {
                         // account for browsers injecting pre around json response
@@ -800,16 +800,10 @@ $.fn.ajaxSubmit = function(options) {
             }
             return (doc && doc.documentElement && doc.documentElement.nodeName != 'parsererror') ? doc : null;
         };
-        // Safe JSON parsing without eval / Function, to avoid Code Injection
-        var parseJSON = (function() {
-            if (typeof $.parseJSON === 'function') {
-                return $.parseJSON;
-            }
-            return function (s) {
-                // Use the built-in JSON parser when available
-                return JSON.parse(s);
-            };
-        }());
+        var parseJSON = $.parseJSON || function(s) {
+            // Replaced eval with JSON.parse for security
+            return JSON.parse(s);
+        };
 
         var httpData = function( xhr, type, s ) { // mostly lifted from jq1.4.4
 

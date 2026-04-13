@@ -2,56 +2,64 @@ package org.owasp.webgoat.lessons.pathtraversal;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.Mockito.*;
 
 import java.io.File;
 import java.nio.file.Files;
 import org.junit.jupiter.api.Test;
-import org.owasp.webgoat.container.assignments.AttackResult;
-import org.springframework.util.FileSystemUtils;
+import org.springframework.util.FileCopyUtils;
 import org.springframework.web.multipart.MultipartFile;
 
 /**
  * Delta tests for ProfileUploadBase focusing on:
- * - Sanitization of fullName via FilenameUtils.getName().
- * - Ensuring uploaded files remain inside the intended user directory even
- *   when fullName contains path traversal sequences.
+ * - Sanitization of fullName and username to prevent path traversal when constructing filesystem paths.
+ *
+ * Derived path:
+ * src/test/java/org/owasp/webgoat/lessons/pathtraversal/ProfileUploadBaseTest.java
  */
-class ProfileUploadBaseTest {
+public class ProfileUploadBaseTest {
 
   @Test
-  void execute_normalizesTraversalInFullNameAndWritesInsideUserDirectory()
-      throws Exception {
-    File tempRoot = Files.createTempDirectory("webgoat-home-").toFile();
-    ProfileUploadBase base = new ProfileUploadBase(tempRoot.getAbsolutePath());
+  void execute_shouldSanitizeFullNameAndPreventPathTraversal() throws Exception {
+    // Arrange
+    String baseDir = Files.createTempDirectory("webgoat-path-").toFile().getAbsolutePath();
+    ProfileUploadBase base = new ProfileUploadBase(baseDir);
+    MultipartFile multipartFile = org.mockito.Mockito.mock(MultipartFile.class);
+    org.mockito.Mockito.when(multipartFile.isEmpty()).thenReturn(false);
+    org.mockito.Mockito.when(multipartFile.getBytes()).thenReturn("data".getBytes());
 
-    MultipartFile file = mock(MultipartFile.class);
-    when(file.isEmpty()).thenReturn(false);
-    when(file.getBytes()).thenReturn("dummy".getBytes());
+    String maliciousFullName = "../evil/../../escape.txt";
+    String username = "user1";
 
-    String username = "alice";
-    String traversalName = "../../etc/passwd";
+    // Act
+    base.execute(multipartFile, maliciousFullName, username);
 
-    try {
-      AttackResult result = base.execute(file, traversalName, username);
+    // Assert
+    File userDir = new File(baseDir, "/PathTraversal/" + username);
+    assertTrue(userDir.isDirectory());
 
-      File userDir = new File(tempRoot, "/PathTraversal/" + username);
-      assertTrue(userDir.exists());
+    File[] files = userDir.listFiles();
+    assertTrue(files != null && files.length == 1, "One file should be created in the user directory");
+    File uploaded = files[0];
 
-      File[] files = userDir.listFiles();
-      assertTrue(files != null && files.length == 1);
+    // The created file name should be sanitized to the last name segment (no ../ parts)
+    assertEquals("escape.txt", uploaded.getName());
+    // And it must be inside the intended userDir (not traversed outside)
+    assertTrue(uploaded.getCanonicalPath().startsWith(userDir.getCanonicalPath()));
+  }
 
-      File stored = files[0];
+  @Test
+  void cleanupAndCreateDirectoryForUser_shouldSanitizeUsernameInDirectoryPath() throws Exception {
+    // Arrange
+    String baseDir = Files.createTempDirectory("webgoat-path-").toFile().getAbsolutePath();
+    ProfileUploadBase base = new ProfileUploadBase(baseDir);
+    String maliciousUsername = "../admin";
 
-      assertEquals("passwd", stored.getName());
-      assertEquals(userDir.getCanonicalPath(), stored.getParentFile().getCanonicalPath());
+    // Act
+    File userDir = base.cleanupAndCreateDirectoryForUser(maliciousUsername);
 
-      assertTrue(
-          result.getStatus() == AttackResult.Status.INFO
-              || result.getStatus() == AttackResult.Status.FAILURE
-              || result.getStatus() == AttackResult.Status.SUCCESS);
-    } finally {
-      FileSystemUtils.deleteRecursively(tempRoot);
-    }
+    // Assert
+    // Directory name should be sanitized
+    assertEquals("admin", userDir.getName());
+    assertTrue(userDir.getCanonicalPath().startsWith(new File(baseDir, "/PathTraversal").getCanonicalPath()));
   }
 }
