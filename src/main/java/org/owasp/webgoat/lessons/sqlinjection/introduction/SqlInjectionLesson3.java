@@ -10,10 +10,12 @@ import static org.owasp.webgoat.container.assignments.AttackResultBuilder.failed
 import static org.owasp.webgoat.container.assignments.AttackResultBuilder.success;
 
 import java.sql.Connection;
-import java.sql.PreparedStatement; // Added import for PreparedStatement
+import java.sql.PreparedStatement; // Added for parameterized query
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern; // Added for regex parsing
 import org.owasp.webgoat.container.LessonDataSource;
 import org.owasp.webgoat.container.assignments.AssignmentEndpoint;
 import org.owasp.webgoat.container.assignments.AssignmentHints;
@@ -41,33 +43,41 @@ public class SqlInjectionLesson3 implements AssignmentEndpoint {
 
   protected AttackResult injectableQuery(String query) {
     try (Connection connection = dataSource.getConnection()) {
-      // Vulnerability: Direct execution of user-supplied 'query' as a SQL statement.
-      // Remediation: Use PreparedStatement to parameterize the SQL query.
-      // Based on the lesson's success condition (department of Barnett becomes 'Sales'),
-      // it's inferred that 'query' is intended to be the value for the 'department' column
-      // in an UPDATE statement.
-      String updateSql = "UPDATE employees SET department = ? WHERE last_name = 'Barnett'";
-      try (PreparedStatement preparedStatement = connection.prepareStatement(updateSql)) {
-        preparedStatement.setString(1, query); // Bind the user-supplied 'query' as a parameter
-        preparedStatement.executeUpdate();
+      // Remediation: Instead of directly executing the user-supplied 'query', parse it
+      // to extract the intended update value and then execute a safe, parameterized query.
+      // This prevents arbitrary SQL injection while allowing the lesson's intended action.
+      String expectedUpdatePattern = "UPDATE\\s+employees\\s+SET\\s+department\\s*=\\s*'([^']*)'\\s+WHERE\\s+last_name\\s*=\\s*'Barnett'\\s*;?";
+      Pattern updatePattern = Pattern.compile(expectedUpdatePattern, Pattern.CASE_INSENSITIVE);
+      Matcher updateMatcher = updatePattern.matcher(query);
 
-        // The checkStatement is used for internal validation and does not process user input,
-        // so it can safely remain a Statement.
-        try (Statement checkStatement =
-            connection.createStatement(TYPE_SCROLL_INSENSITIVE, CONCUR_READ_ONLY)) {
-          ResultSet results =
-              checkStatement.executeQuery("SELECT * FROM employees WHERE last_name='Barnett';");
-          StringBuilder output = new StringBuilder();
-          // user completes lesson if the department of Tobi Barnett now is 'Sales'
-          results.first();
-          if (results.getString("department").equals("Sales")) {
-            output.append("<span class='feedback-positive'>Department updated to: " + query + "</span>"); // Adjusted output message
-            output.append(SqlInjectionLesson8.generateTable(results));
-            return success(this).output(output.toString()).build();
-          } else {
-            return failed(this).output(output.toString()).build();
-          }
+      if (updateMatcher.matches()) {
+        String newDepartment = updateMatcher.group(1);
+        try (PreparedStatement updateStatement = connection.prepareStatement(
+                "UPDATE employees SET department = ? WHERE last_name = 'Barnett'")) {
+            updateStatement.setString(1, newDepartment);
+            updateStatement.executeUpdate();
         }
+      } else {
+        // If the user's query does not match the expected update pattern for the lesson,
+        // prevent its execution and provide feedback indicating an invalid query.
+        return failed(this).feedback("sql-injection.lesson3.invalid_update_query").build();
+      }
+
+      try (Statement checkStatement =
+          connection.createStatement(TYPE_SCROLL_INSENSITIVE, CONCUR_READ_ONLY)) {
+        ResultSet results =
+            checkStatement.executeQuery("SELECT * FROM employees WHERE last_name='Barnett';");
+        StringBuilder output = new StringBuilder();
+        // user completes lesson if the department of Tobi Barnett now is 'Sales'
+        results.first();
+        if (results.getString("department").equals("Sales")) {
+          output.append("<span class='feedback-positive'>" + query + "</span>");
+          output.append(SqlInjectionLesson8.generateTable(results));
+          return success(this).output(output.toString()).build();
+        } else {
+          return failed(this).output(output.toString()).build();
+        }
+
       } catch (SQLException sqle) {
         return failed(this).output(sqle.getMessage()).build();
       }

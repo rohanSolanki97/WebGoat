@@ -17,7 +17,7 @@ import java.util.Base64;
 import java.util.List;
 import lombok.Getter;
 import lombok.SneakyThrows;
-import org.apache.commons.io.FilenameUtils; // Remediation: Added import for FilenameUtils
+import org.apache.commons.io.FilenameUtils;
 import org.owasp.webgoat.container.CurrentUsername;
 import org.owasp.webgoat.container.assignments.AssignmentEndpoint;
 import org.owasp.webgoat.container.assignments.AttackResult;
@@ -48,9 +48,10 @@ public class ProfileUploadBase implements AssignmentEndpoint {
     File uploadDirectory = cleanupAndCreateDirectoryForUser(username);
 
     try {
-      // Remediation: Sanitize fullName to prevent path traversal when creating the file
-      var sanitizedFullName = FilenameUtils.getName(fullName); // Extract only the filename
-      var uploadedFile = new File(uploadDirectory, sanitizedFullName);
+      // Remediation: Sanitize the user-supplied 'fullName' to prevent path traversal.
+      // FilenameUtils.getName() extracts only the filename, removing any path components.
+      String safeFileName = FilenameUtils.getName(fullName);
+      var uploadedFile = new File(uploadDirectory, safeFileName);
       uploadedFile.createNewFile();
       FileCopyUtils.copy(file.getBytes(), uploadedFile);
 

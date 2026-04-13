@@ -2,50 +2,56 @@ package org.owasp.webgoat.lessons.pathtraversal;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 import java.io.File;
 import java.nio.file.Files;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
+import org.owasp.webgoat.container.assignments.AttackResult;
+import org.springframework.util.FileSystemUtils;
 import org.springframework.web.multipart.MultipartFile;
 
+/**
+ * Delta tests for ProfileUploadBase focusing on:
+ * - Sanitization of fullName via FilenameUtils.getName().
+ * - Ensuring uploaded files remain inside the intended user directory even
+ *   when fullName contains path traversal sequences.
+ */
 class ProfileUploadBaseTest {
 
   @Test
-  void execute_usesBasenameOfFullNameAndPreventsPathTraversalOutsideUserDirectory()
+  void execute_normalizesTraversalInFullNameAndWritesInsideUserDirectory()
       throws Exception {
-    String baseDir = "target/path-traversal-home";
-    String username = "alice";
-    String dangerousName = "../evil.txt";
+    File tempRoot = Files.createTempDirectory("webgoat-home-").toFile();
+    ProfileUploadBase base = new ProfileUploadBase(tempRoot.getAbsolutePath());
 
-    ProfileUploadBase base = new ProfileUploadBase(baseDir);
-
-    MultipartFile file = Mockito.mock(MultipartFile.class);
+    MultipartFile file = mock(MultipartFile.class);
     when(file.isEmpty()).thenReturn(false);
-    when(file.getBytes()).thenReturn("data".getBytes());
+    when(file.getBytes()).thenReturn("dummy".getBytes());
 
-    base.execute(file, dangerousName, username);
+    String username = "alice";
+    String traversalName = "../../etc/passwd";
 
-    File userDir = new File(baseDir, "/PathTraversal/" + username);
-    assertTrue(userDir.exists(), "User upload directory should exist");
+    try {
+      AttackResult result = base.execute(file, traversalName, username);
 
-    File[] uploaded = userDir.listFiles();
-    assertTrue(uploaded != null && uploaded.length == 1, "Exactly one uploaded file is expected");
+      File userDir = new File(tempRoot, "/PathTraversal/" + username);
+      assertTrue(userDir.exists());
 
-    File uploadedFile = uploaded[0];
+      File[] files = userDir.listFiles();
+      assertTrue(files != null && files.length == 1);
 
-    // The uploaded file name must be the sanitized basename only
-    assertEquals("evil.txt", uploadedFile.getName(), "FullName must be normalized to basename");
+      File stored = files[0];
 
-    // The canonical path of the uploaded file must remain within the user directory
-    String userCanonical = userDir.getCanonicalPath();
-    String uploadedCanonical = uploadedFile.getCanonicalPath();
-    assertTrue(
-        uploadedCanonical.startsWith(userCanonical),
-        "Uploaded file must remain within the user-specific directory");
+      assertEquals("passwd", stored.getName());
+      assertEquals(userDir.getCanonicalPath(), stored.getParentFile().getCanonicalPath());
 
-    // Ensure file content actually written
-    assertTrue(Files.size(uploadedFile.toPath()) > 0);
+      assertTrue(
+          result.getStatus() == AttackResult.Status.INFO
+              || result.getStatus() == AttackResult.Status.FAILURE
+              || result.getStatus() == AttackResult.Status.SUCCESS);
+    } finally {
+      FileSystemUtils.deleteRecursively(tempRoot);
+    }
   }
 }

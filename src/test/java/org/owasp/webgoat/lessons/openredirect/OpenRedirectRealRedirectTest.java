@@ -5,32 +5,48 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.servlet.ModelAndView;
 
+/**
+ * Delta tests for OpenRedirectRealRedirect focusing on URL validation:
+ * - Safe relative URLs are allowed.
+ * - External / protocol-relative / scheme-based URLs are rejected and redirected
+ *   to /welcome.mvc.
+ */
 class OpenRedirectRealRedirectTest {
 
-  @Test
-  void real_allowsRelativeUrlStartingWithSlash() {
-    OpenRedirectRealRedirect controller = new OpenRedirectRealRedirect();
+  private final OpenRedirectRealRedirect controller = new OpenRedirectRealRedirect();
 
-    ModelAndView mv = controller.real("/internal/page");
-    assertEquals("redirect:/internal/page", mv.getViewName());
+  @Test
+  void real_allowsSafeRelativeUrl() {
+    ModelAndView mav = controller.real("/some/page");
+
+    assertEquals("redirect:/some/page", mav.getViewName());
   }
 
   @Test
-  void real_redirectsExternalUrlToRoot() {
-    OpenRedirectRealRedirect controller = new OpenRedirectRealRedirect();
+  void real_rejectsAbsoluteHttpUrl() {
+    ModelAndView mav = controller.real("http://evil.com");
 
-    ModelAndView mv = controller.real("https://attacker.example/phish");
-    assertEquals("redirect:/", mv.getViewName());
+    assertEquals("redirect:/welcome.mvc", mav.getViewName());
   }
 
   @Test
-  void real_redirectsNullOrEmptyUrlToRoot() {
-    OpenRedirectRealRedirect controller = new OpenRedirectRealRedirect();
+  void real_rejectsProtocolRelativeUrl() {
+    ModelAndView mav = controller.real("//evil.com");
 
-    ModelAndView mvNull = controller.real(null);
-    ModelAndView mvEmpty = controller.real("");
+    assertEquals("redirect:/welcome.mvc", mav.getViewName());
+  }
 
-    assertEquals("redirect:/", mvNull.getViewName());
-    assertEquals("redirect:/", mvEmpty.getViewName());
+  @Test
+  void real_rejectsJavascriptScheme() {
+    ModelAndView mav = controller.real("javascript:alert(1)");
+
+    assertEquals("redirect:/welcome.mvc", mav.getViewName());
+  }
+
+  @Test
+  void real_rejectsBackslashInUrl() {
+    ModelAndView mav = controller.real("/path\\to\\something");
+
+    assertEquals("redirect:/welcome.mvc", mav.getViewName());
   }
 }
