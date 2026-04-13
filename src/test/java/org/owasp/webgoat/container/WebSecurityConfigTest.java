@@ -1,85 +1,60 @@
+// batch_id: BATCH-005
+// status: IN_PROGRESS
+// test_file_path: src/test/java/org/owasp/webgoat/container/WebSecurityConfigTest.java
 package org.owasp.webgoat.container;
 
-import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
 import org.owasp.webgoat.container.users.UserService;
-import org.springframework.security.authentication.AuthenticationManager;
-import org.springframework.security.config.annotation.authentication.builders.AuthenticationManagerBuilder;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
-import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 
 /**
- * Delta tests for WebSecurityConfig focusing on:
- *  - replacing NoOpPasswordEncoder with a strong PasswordEncoder (BCryptPasswordEncoder),
- *  - removing global CSRF disablement (ensured via configuration behavior).
- *
- * Path: src/test/java/org/owasp/webgoat/container/WebSecurityConfigTest.java
+ * Delta tests for WebSecurityConfig focused on:
+ * - Replacement of NoOpPasswordEncoder with BCryptPasswordEncoder.
  */
 public class WebSecurityConfigTest {
 
   @Test
-  void passwordEncoder_shouldReturnStrongEncoder_notNoOp() {
-    // Arrange
-    UserService userService = Mockito.mock(UserService.class);
+  @DisplayName("passwordEncoder bean is BCryptPasswordEncoder and hashes non-plaintext values")
+  void passwordEncoder_isBCryptPasswordEncoder() {
+    UserService userService = org.mockito.Mockito.mock(UserService.class);
     WebSecurityConfig config = new WebSecurityConfig(userService);
 
-    // Act
-    PasswordEncoder encoder = config.passwordEncoder();
+    BCryptPasswordEncoder encoder = config.passwordEncoder();
 
-    // Assert: encoder must not be a NoOp implementation and should perform hashing
-    assertInstanceOf(
-        PasswordEncoder.class, encoder, "passwordEncoder bean must implement PasswordEncoder");
-    String raw = "password";
-    String encoded = encoder.encode(raw);
-    assertTrue(
-        encoder.matches(raw, encoded),
-        "Encoded password should match raw password using configured encoder");
-    assertTrue(
-        !encoded.equals(raw),
-        "Encoded password should not equal raw password (no plaintext storage)");
+    String raw = "Password123!";
+    String hash = encoder.encode(raw);
+
+    assertTrue(encoder.matches(raw, hash), "BCrypt encoder should validate its own hash");
+    assertNotEquals(raw, hash, "BCrypt hash must not equal raw password (no-op encoding removed)");
   }
 
   @Test
-  void configureGlobal_shouldRegisterPasswordEncoder() throws Exception {
-    // Arrange
-    UserService userService = Mockito.mock(UserService.class);
+  @DisplayName("userDetailsServiceBean still returns injected UserService")
+  void userDetailsServiceBean_returnsInjectedUserService() {
+    UserService userService = org.mockito.Mockito.mock(UserService.class);
     WebSecurityConfig config = new WebSecurityConfig(userService);
-    AuthenticationManagerBuilder authBuilder = Mockito.mock(AuthenticationManagerBuilder.class);
 
-    Mockito.when(authBuilder.userDetailsService(userService)).thenReturn(authBuilder);
-    Mockito.when(authBuilder.passwordEncoder(Mockito.any(PasswordEncoder.class)))
-        .thenReturn(authBuilder);
+    var serviceFromBean = config.userDetailsServiceBean();
 
-    // Act
-    config.configureGlobal(authBuilder);
-
-    // Assert: verify passwordEncoder is wired into AuthenticationManagerBuilder
-    Mockito.verify(authBuilder).userDetailsService(userService);
-    Mockito.verify(authBuilder).passwordEncoder(Mockito.any(PasswordEncoder.class));
+    org.junit.jupiter.api.Assertions.assertSame(
+        userService, serviceFromBean, "UserService wiring must remain unchanged");
   }
 
   @Test
-  void filterChain_shouldNotDisableCsrfGlobally() throws Exception {
-    // This test checks that filterChain creation works and relies on the updated
-    // configuration where csrf is no longer fully disabled. We cannot easily
-    // inspect internal HttpSecurity state without full Spring context, but creating
-    // the chain successfully acts as a regression guard against invalid CSRF config.
-    UserService userService = Mockito.mock(UserService.class);
+  @DisplayName("authenticationManager method remains callable with AuthenticationConfiguration")
+  void authenticationManager_obtainable() throws Exception {
+    UserService userService = org.mockito.Mockito.mock(UserService.class);
     WebSecurityConfig config = new WebSecurityConfig(userService);
 
     AuthenticationConfiguration authenticationConfiguration =
-        Mockito.mock(AuthenticationConfiguration.class);
-    AuthenticationManager manager = Mockito.mock(AuthenticationManager.class);
-    Mockito.when(authenticationConfiguration.getAuthenticationManager()).thenReturn(manager);
+        org.mockito.Mockito.mock(AuthenticationConfiguration.class);
 
-    // Just ensure passwordEncoder bean and authenticationManager can be created
-    PasswordEncoder encoder = config.passwordEncoder();
-    AuthenticationManager am = config.authenticationManager(authenticationConfiguration);
-
-    assertInstanceOf(PasswordEncoder.class, encoder);
-    assertInstanceOf(AuthenticationManager.class, am);
+    config.authenticationManager(authenticationConfiguration);
+    org.mockito.Mockito.verify(authenticationConfiguration).getAuthenticationManager();
   }
 }

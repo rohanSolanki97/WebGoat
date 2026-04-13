@@ -1,63 +1,74 @@
+// batch_id: BATCH-003
+// status: IN_PROGRESS
+// test_file_path: src/test/java/org/owasp/webgoat/lessons/deserialization/InsecureDeserializationTaskTest.java
 package org.owasp.webgoat.lessons.deserialization;
 
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import java.io.ByteArrayOutputStream;
 import java.io.ObjectOutputStream;
+import java.io.Serializable;
 import java.util.Base64;
-import org.dummy.insecure.framework.VulnerableTaskHolder;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.owasp.webgoat.container.assignments.AttackResult;
 
 /**
- * Delta tests for InsecureDeserializationTask focusing on the introduction of a class-allowlisting
- * CustomObjectInputStream that only permits VulnerableTaskHolder.
- *
- * Path: src/test/java/org/owasp/webgoat/lessons/deserialization/InsecureDeserializationTaskTest.java
+ * Delta tests for InsecureDeserializationTask focusing on the added
+ * ObjectInputFilter that restricts deserialized types.
  */
 public class InsecureDeserializationTaskTest {
 
-  private final InsecureDeserializationTask task = new InsecureDeserializationTask();
-
-  @Test
-  void completed_shouldFailWhenDeserializingDisallowedType() throws Exception {
-    // Arrange: create a serialized String payload (disallowed type) and base64-url encode it
-    String maliciousObject = "I am not VulnerableTaskHolder";
-    String token = serializeToBase64Url(maliciousObject);
-
-    // Act
-    AttackResult result = task.completed(token);
-
-    // Assert: with new allowlist, String objects are explicitly rejected
-    assertFalse(result.isSuccess());
-  }
-
-  @Test
-  void completed_shouldAllowVulnerableTaskHolderType() throws Exception {
-    // Arrange: create an allowed VulnerableTaskHolder object
-    VulnerableTaskHolder holder = new VulnerableTaskHolder();
-    String token = serializeToBase64Url(holder);
-
-    // Act
-    AttackResult result = task.completed(token);
-
-    // Assert: the allowlist should not block legitimate VulnerableTaskHolder instances
-    // Note: actual success may still depend on internal timing logic; here we just assert
-    // that processing does not fail immediately due to type restrictions.
-    // We accept either success or specific failure not related to invalid type.
-    assertTrue(
-        !result.getFeedback().orElse("").contains("invalidversion"),
-        "Result should not fail due to invalid class version/type");
-  }
-
-  private String serializeToBase64Url(Object obj) throws Exception {
+  private String toWebGoatToken(Object object) throws Exception {
     ByteArrayOutputStream baos = new ByteArrayOutputStream();
     try (ObjectOutputStream oos = new ObjectOutputStream(baos)) {
-      oos.writeObject(obj);
+      oos.writeObject(object);
     }
-    String b64 = Base64.getEncoder().encodeToString(baos.toByteArray());
-    // Match application transformation: '-' for '+', '_' for '/'
-    return b64.replace('+', '-').replace('/', '_');
+    String base64 = Base64.getEncoder().encodeToString(baos.toByteArray());
+    return base64.replace('+', '-').replace('/', '_');
+  }
+
+  /** A serializable type not present in the ObjectInputFilter allowlist. */
+  private static class DisallowedSerializable implements Serializable {
+    private static final long serialVersionUID = 1L;
+    private final String value;
+
+    DisallowedSerializable(String value) {
+      this.value = value;
+    }
+
+    @Override
+    public String toString() {
+      return value;
+    }
+  }
+
+  @Test
+  @DisplayName("completed rejects disallowed serializable type due to ObjectInputFilter")
+  void completed_rejectsDisallowedType() throws Exception {
+    InsecureDeserializationTask task = new InsecureDeserializationTask();
+    String token = toWebGoatToken(new DisallowedSerializable("blocked"));
+
+    var result = task.completed(token);
+
+    // Filter should cause a generic invalidversion feedback for unknown classes.
+    assertEquals(
+        "insecure-deserialization.invalidversion",
+        result.getFeedbackId(),
+        "Disallowed type should be rejected by ObjectInputFilter");
+  }
+
+  @Test
+  @DisplayName("completed still handles allowed java.lang.String as before")
+  void completed_handlesAllowedStringType() throws Exception {
+    InsecureDeserializationTask task = new InsecureDeserializationTask();
+    String token = toWebGoatToken("safe-string");
+
+    var result = task.completed(token);
+
+    // Existing behavior for String should remain unchanged.
+    assertEquals(
+        "insecure-deserialization.stringobject",
+        result.getFeedbackId(),
+        "String type should still be processed via existing failure path");
   }
 }
