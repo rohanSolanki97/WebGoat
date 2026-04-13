@@ -1,94 +1,79 @@
 package org.owasp.webgoat.lessons.sqlinjection.advanced;
 
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.Mockito.*;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import java.sql.SQLException;
 import org.junit.jupiter.api.Test;
 import org.owasp.webgoat.container.LessonDataSource;
 import org.owasp.webgoat.container.assignments.AttackResult;
 
 /**
- * Delta tests for SqlInjectionChallenge focusing on the vulnerability:
- * "Change this code to not construct SQL queries directly from user-controlled data."
- *
- * The fix replaces a concatenated SELECT query with a parameterized PreparedStatement.
- * These tests ensure:
- * - The SELECT uses a PreparedStatement with a parameter placeholder.
- * - User-controlled username is bound via setString on the PreparedStatement.
+ * Delta tests for SqlInjectionChallenge focusing on the parameterized SELECT query used
+ * to check for existing users and its resilience against SQL injection.
  */
 class SqlInjectionChallengeTest {
 
   @Test
-  void registerNewUser_usesPreparedStatementForUserExistenceCheck() throws Exception {
-    // Arrange
+  void registerNewUser_existingUser_usesParameterizedSelectAndFails() throws SQLException {
     LessonDataSource dataSource = mock(LessonDataSource.class);
     SqlInjectionChallenge challenge = new SqlInjectionChallenge(dataSource);
 
     Connection connection = mock(Connection.class);
-    PreparedStatement selectStatement = mock(PreparedStatement.class);
-    PreparedStatement insertStatement = mock(PreparedStatement.class);
-    ResultSet resultSet = mock(ResultSet.class);
+    PreparedStatement selectPs = mock(PreparedStatement.class);
+    ResultSet rs = mock(ResultSet.class);
 
     when(dataSource.getConnection()).thenReturn(connection);
-    when(connection.prepareStatement(eq("select userid from sql_challenge_users where userid = ?")))
-        .thenReturn(selectStatement);
-    when(selectStatement.executeQuery()).thenReturn(resultSet);
-    when(resultSet.next()).thenReturn(false);
-    when(connection.prepareStatement(eq("INSERT INTO sql_challenge_users VALUES (?, ?, ?)")))
-        .thenReturn(insertStatement);
+    when(connection.prepareStatement("select userid from sql_challenge_users where userid = ?"))
+        .thenReturn(selectPs);
+    when(selectPs.executeQuery()).thenReturn(rs);
+    when(rs.next()).thenReturn(true);
 
-    String username = "newuser";
-    String email = "newuser@example.com";
-    String password = "StrongP@ssw0rd";
+    AttackResult result =
+        challenge.registerNewUser("alice", "alice@example.com", "password123");
 
-    // Act
-    AttackResult result = challenge.registerNewUser(username, email, password);
-
-    // Assert
-    // Delta: assert parametrization and binding on the SELECT.
     verify(connection)
-        .prepareStatement(eq("select userid from sql_challenge_users where userid = ?"));
-    verify(selectStatement).setString(1, username);
-    verify(selectStatement).executeQuery();
-
-    // Ensure API is still returning a non-null AttackResult.
-    assertNotNull(result, "registerNewUser should return a non-null AttackResult instance");
+        .prepareStatement("select userid from sql_challenge_users where userid = ?");
+    verify(selectPs).setString(1, "alice");
+    assertEquals(AttackResult.Status.FAILURE, result.getStatus());
   }
 
   @Test
-  void registerNewUser_usesParameterizedQueryEvenWithInjectionPayload() throws Exception {
-    // Arrange
+  void registerNewUser_injectionPayloadIsBoundAsParameterAndDoesNotCauseBypass()
+      throws SQLException {
     LessonDataSource dataSource = mock(LessonDataSource.class);
     SqlInjectionChallenge challenge = new SqlInjectionChallenge(dataSource);
 
     Connection connection = mock(Connection.class);
-    PreparedStatement selectStatement = mock(PreparedStatement.class);
-    ResultSet resultSet = mock(ResultSet.class);
+    PreparedStatement selectPs = mock(PreparedStatement.class);
+    PreparedStatement insertPs = mock(PreparedStatement.class);
+    ResultSet rs = mock(ResultSet.class);
 
     when(dataSource.getConnection()).thenReturn(connection);
-    when(connection.prepareStatement(eq("select userid from sql_challenge_users where userid = ?")))
-        .thenReturn(selectStatement);
-    when(selectStatement.executeQuery()).thenReturn(resultSet);
-    when(resultSet.next()).thenReturn(false);
+    when(connection.prepareStatement("select userid from sql_challenge_users where userid = ?"))
+        .thenReturn(selectPs);
+    when(selectPs.executeQuery()).thenReturn(rs);
+    when(rs.next()).thenReturn(false);
+    when(connection.prepareStatement("INSERT INTO sql_challenge_users VALUES (?, ?, ?)"))
+        .thenReturn(insertPs);
 
-    // Injection-like username that previously would have affected the SQL WHERE clause.
-    String username = "user' OR '1'='1";
-    String email = "a@b.c";
-    String password = "pwd";
+    String injection = "bob' OR '1'='1";
 
-    // Act
-    challenge.registerNewUser(username, email, password);
+    AttackResult result =
+        challenge.registerNewUser(injection, "bob@example.com", "password123");
 
-    // Assert
-    // The username must be bound as data, not concatenated into SQL.
-    verify(connection)
-        .prepareStatement(eq("select userid from sql_challenge_users where userid = ?"));
-    verify(selectStatement).setString(1, username);
+    // The injection string must be treated strictly as a parameter value
+    verify(selectPs).setString(1, injection);
+    verify(insertPs).setString(1, injection);
+    verify(insertPs).setString(2, "bob@example.com");
+    verify(insertPs).setString(3, "password123");
+
+    // With no existing user, the flow should proceed to insertion and return an
+    // informational (non-failure) result, indicating that injection did not
+    // alter control flow of the SELECT statement.
+    assertEquals(AttackResult.Status.INFO, result.getStatus());
   }
 }

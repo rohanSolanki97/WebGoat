@@ -1,61 +1,72 @@
 package org.owasp.webgoat.lessons.cryptography;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpSession;
+import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.security.SecureRandom;
+import javax.xml.bind.DatatypeConverter;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
 
 /**
- * Delta tests for HashingAssignment focusing on the vulnerability:
- * "Use of Cryptographically Weak Pseudo-Random Number Generator".
- *
- * These tests ensure that:
- * - The session-based caching behavior is preserved (hash is stable once in session).
- * - The public API of getMd5/getSha256 remains unchanged after switching to SecureRandom.
- *
- * Note: The actual use of java.security.SecureRandom is a private implementation detail, so we
- * avoid probabilistic checks that would be flaky and instead validate observable behavior.
+ * Delta tests for HashingAssignment focusing on the switch from Random to SecureRandom.
  */
 class HashingAssignmentTest {
 
   @Test
-  void getMd5_usesSessionCachedHashWhenPresent() throws NoSuchAlgorithmException {
-    // Arrange
+  void getMd5_usesSecureRandomToSelectSecretAndStoresHashInSession()
+      throws NoSuchAlgorithmException {
     HashingAssignment assignment = new HashingAssignment();
     HttpServletRequest request = mock(HttpServletRequest.class);
     HttpSession session = mock(HttpSession.class);
-
-    String existingHash = "ABCDEF0123456789";
     when(request.getSession()).thenReturn(session);
-    when(session.getAttribute("md5Hash")).thenReturn(existingHash);
+    when(session.getAttribute("md5Hash")).thenReturn(null);
 
-    // Act
-    String result = assignment.getMd5(request);
+    try (MockedStatic<SecureRandom> secureRandomStatic = mockStatic(SecureRandom.class)) {
+      SecureRandom secureRandom = mock(SecureRandom.class);
+      secureRandomStatic.when(SecureRandom::getInstanceStrong).thenReturn(secureRandom);
+      when(secureRandom.nextInt(HashingAssignment.SECRETS.length)).thenReturn(0);
 
-    // Assert
-    // Core behavior: if the hash is already present in the session, it must be reused.
-    assertEquals(existingHash, result, "Expected getMd5 to reuse the md5Hash from the session");
+      String expectedSecret = HashingAssignment.SECRETS[0];
+      MessageDigest md = MessageDigest.getInstance("MD5");
+      md.update(expectedSecret.getBytes());
+      String expectedHash =
+          DatatypeConverter.printHexBinary(md.digest()).toUpperCase();
+
+      String actual = assignment.getMd5(request);
+
+      assertEquals(expectedHash, actual);
+      verify(session).setAttribute("md5Hash", expectedHash);
+      verify(session).setAttribute("md5Secret", expectedSecret);
+    }
   }
 
   @Test
-  void getSha256_usesSessionCachedHashWhenPresent() throws NoSuchAlgorithmException {
-    // Arrange
+  void getSha256_usesSecureRandomToSelectSecretAndStoresHashInSession()
+      throws NoSuchAlgorithmException {
     HashingAssignment assignment = new HashingAssignment();
     HttpServletRequest request = mock(HttpServletRequest.class);
     HttpSession session = mock(HttpSession.class);
-
-    String existingHash = "FEDCBA9876543210";
     when(request.getSession()).thenReturn(session);
-    when(session.getAttribute("sha256")).thenReturn(existingHash);
+    when(session.getAttribute("sha256")).thenReturn(null);
 
-    // Act
-    String result = assignment.getSha256(request);
+    try (MockedStatic<SecureRandom> secureRandomStatic = mockStatic(SecureRandom.class)) {
+      SecureRandom secureRandom = mock(SecureRandom.class);
+      secureRandomStatic.when(SecureRandom::getInstanceStrong).thenReturn(secureRandom);
+      when(secureRandom.nextInt(HashingAssignment.SECRETS.length)).thenReturn(1);
 
-    // Assert
-    assertEquals(existingHash, result, "Expected getSha256 to reuse the sha256 hash from session");
+      String expectedSecret = HashingAssignment.SECRETS[1];
+      String expectedHash = HashingAssignment.getHash(expectedSecret, "SHA-256");
+
+      String actual = assignment.getSha256(request);
+
+      assertEquals(expectedHash, actual);
+      verify(session).setAttribute("sha256Hash", expectedHash);
+      verify(session).setAttribute("sha256Secret", expectedSecret);
+    }
   }
 }

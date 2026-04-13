@@ -11,7 +11,7 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InvalidClassException;
 import java.io.ObjectInputStream;
-import java.io.ObjectInputFilter; // Added: Import ObjectInputFilter
+import java.io.ObjectInputFilter; // New import for serialization filter
 import java.util.Base64;
 import org.dummy.insecure.framework.VulnerableTaskHolder;
 import org.owasp.webgoat.container.assignments.AssignmentEndpoint;
@@ -42,9 +42,11 @@ public class InsecureDeserializationTask implements AssignmentEndpoint {
 
     try (ObjectInputStream ois =
         new ObjectInputStream(new ByteArrayInputStream(Base64.getDecoder().decode(b64token)))) {
-      // Changed: Added ObjectInputFilter to restrict deserializable classes
+
+      // Remediation: Applied JEP 290 serialization filter to restrict deserializable classes
       ObjectInputFilter filter = ObjectInputFilter.Config.createFilter(
-          "org.dummy.insecure.framework.VulnerableTaskHolder;java.lang.String;!*");
+          "org.dummy.insecure.framework.VulnerableTaskHolder;java.lang.String;java.lang.Number;java.util.Date;java.util.List;java.util.Map;java.util.Set;java.util.Collection;java.util.ArrayList;java.util.HashMap;java.util.HashSet;java.util.Arrays;java.lang.Boolean;java.lang.Byte;java.lang.Character;java.lang.Double;java.lang.Float;java.lang.Integer;java.lang.Long;java.lang.Short;java.math.BigDecimal;java.math.BigInteger;!*"
+      );
       ois.setObjectInputFilter(filter);
 
       before = System.currentTimeMillis();

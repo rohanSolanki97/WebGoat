@@ -800,11 +800,16 @@ $.fn.ajaxSubmit = function(options) {
             }
             return (doc && doc.documentElement && doc.documentElement.nodeName != 'parsererror') ? doc : null;
         };
-        var parseJSON = $.parseJSON || function(s) {
-            // Before: window['eval']('(' + s + ')');
-            // Now: use native JSON.parse to avoid executing arbitrary code.
-            return JSON.parse(s);
-        };
+        // Safe JSON parsing without eval / Function, to avoid Code Injection
+        var parseJSON = (function() {
+            if (typeof $.parseJSON === 'function') {
+                return $.parseJSON;
+            }
+            return function (s) {
+                // Use the built-in JSON parser when available
+                return JSON.parse(s);
+            };
+        }());
 
         var httpData = function( xhr, type, s ) { // mostly lifted from jq1.4.4
 
