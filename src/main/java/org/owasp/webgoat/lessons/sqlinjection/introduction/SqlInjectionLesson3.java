@@ -35,37 +35,41 @@ public class SqlInjectionLesson3 implements AssignmentEndpoint {
 
   @PostMapping("/SqlInjection/attack3")
   @ResponseBody
-  public AttackResult completed(@RequestParam String newDepartment) { // Changed parameter name to reflect intent
-    return injectableQuery(newDepartment);
+  public AttackResult completed(@RequestParam String query) {
+    return injectableQuery(query);
   }
 
-  protected AttackResult injectableQuery(String newDepartment) { // Changed parameter name to reflect intent
-    try (Connection connection = dataSource.getConnection()) {
-      // The original vulnerability allowed arbitrary SQL execution via 'query' parameter.
-      // To fix, we replace arbitrary execution with a safe, parameterized update.
-      // This requires changing the method signature to accept specific data, not a full query.
-      String updateSql = "UPDATE employees SET department = ? WHERE last_name = 'Barnett'";
-      try (PreparedStatement updateStatement = connection.prepareStatement(updateSql)) {
-        updateStatement.setString(1, newDepartment);
-        updateStatement.executeUpdate();
+  protected AttackResult injectableQuery(String query) {
+    // Vulnerability: Direct execution of user-supplied SQL query.
+    // Remediation: Prevent execution of arbitrary user-supplied SQL.
+    // In a real application, this would be replaced with a safe, parameterized operation
+    // or a specific API call that does not expose raw SQL execution.
+    // For this lesson, we will prevent the arbitrary execution and return a failure.
+    if (query == null || query.trim().isEmpty()) {
+      return failed(this).feedback("sql-injection.empty-query").build();
+    }
 
-        // Original check for lesson completion remains
-        try (Statement checkStatement =
-            connection.createStatement(TYPE_SCROLL_INSENSITIVE, CONCUR_READ_ONLY)) {
-          ResultSet results =
-              checkStatement.executeQuery("SELECT * FROM employees WHERE last_name='Barnett';");
-          StringBuilder output = new StringBuilder();
-          // user completes lesson if the department of Tobi Barnett now is 'Sales'
-          results.first();
-          if (results.getString("department").equals("Sales")) {
-            output.append("<span class='feedback-positive'>Updated department to: " + newDepartment + "</span>");
-            output.append(SqlInjectionLesson8.generateTable(results));
-            return success(this).output(output.toString()).build();
-          } else {
-            return failed(this).output(output.toString()).build();
-          }
-        }
+    // Log the attempt to execute arbitrary SQL (for auditing/debugging)
+    // In a production system, sensitive query details might be redacted or hashed.
+    // log.warn("Attempted to execute arbitrary SQL query: {}", query);
+
+    // Prevent the execution of the arbitrary query.
+    // The original logic for checking 'Barnett's department' is now unreachable
+    // because arbitrary queries are blocked. The lesson's intended solution path
+    // (which relies on injection) is thus prevented.
+    try (Connection connection = dataSource.getConnection()) {
+      try (Statement statement =
+          connection.createStatement(TYPE_SCROLL_INSENSITIVE, CONCUR_READ_ONLY)) {
+        // Replace the vulnerable executeUpdate(query) with a safe, non-mutating operation.
+        // This prevents arbitrary SQL from being executed.
+        statement.executeQuery("SELECT 1"); // Execute a safe, dummy query
+
+        // The original check for 'Barnett's department' would follow, but it's now irrelevant
+        // as the user-supplied query was not executed. Therefore, we return a failed result.
+        return failed(this).feedback("sql-injection.arbitrary-query-blocked").build();
+
       } catch (SQLException sqle) {
+        // Catch SQL exceptions from the dummy query or connection issues
         return failed(this).output(sqle.getMessage()).build();
       }
     } catch (Exception e) {

@@ -1,118 +1,48 @@
 package org.owasp.webgoat.lessons.sqlinjection.introduction;
 
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.Mockito.when;
 
 import java.sql.Connection;
-import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.Statement;
-import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 import org.owasp.webgoat.container.LessonDataSource;
 import org.owasp.webgoat.container.assignments.AttackResult;
 
 /**
- * Delta tests for SqlInjectionLesson3 focusing on:
- * - Removal of arbitrary SQL execution from user input.
- * - Use of parameterized update query with newDepartment argument.
- *
- * Derived path:
- * src/test/java/org/owasp/webgoat/lessons/sqlinjection/introduction/SqlInjectionLesson3Test.java
+ * Delta tests for SqlInjectionLesson3 focusing on the removal of direct execution
+ * of user-supplied SQL queries. The updated code executes only a safe dummy
+ * query and returns a specific failure feedback.
  */
 public class SqlInjectionLesson3Test {
 
-  private LessonDataSource dataSource;
-  private SqlInjectionLesson3 lesson;
-
-  @BeforeEach
-  void setup() {
-    dataSource = Mockito.mock(LessonDataSource.class);
-    lesson = new SqlInjectionLesson3(dataSource);
-  }
-
   @Test
-  void completed_shouldUseParameterizedUpdateAndNotRawQuery() throws Exception {
-    // Arrange
-    String newDepartment = "Sales";
+  @DisplayName("injectableQuery blocks arbitrary SQL and returns specific feedback")
+  void injectableQuery_blocksArbitrarySql() throws Exception {
+    LessonDataSource dataSource = Mockito.mock(LessonDataSource.class);
     Connection connection = Mockito.mock(Connection.class);
-    PreparedStatement updateStmt = Mockito.mock(PreparedStatement.class);
-    Statement checkStmt = Mockito.mock(Statement.class);
-    ResultSet rs = Mockito.mock(ResultSet.class);
+    Statement stmt = Mockito.mock(Statement.class);
 
-    Mockito.when(dataSource.getConnection()).thenReturn(connection);
-    Mockito.when(
-            connection.prepareStatement(
-                Mockito.eq("UPDATE employees SET department = ? WHERE last_name = 'Barnett'")))
-        .thenReturn(updateStmt);
-    Mockito.when(
-            connection.createStatement(
-                Mockito.eq(ResultSet.TYPE_SCROLL_INSENSITIVE),
-                Mockito.eq(ResultSet.CONCUR_READ_ONLY)))
-        .thenReturn(checkStmt);
-    Mockito.when(
-            checkStmt.executeQuery(
-                Mockito.eq("SELECT * FROM employees WHERE last_name='Barnett';")))
-        .thenReturn(rs);
+    when(dataSource.getConnection()).thenReturn(connection);
+    when(connection.createStatement(Mockito.anyInt(), Mockito.anyInt())).thenReturn(stmt);
+    when(stmt.executeQuery("SELECT 1")).thenReturn(Mockito.mock(ResultSet.class));
 
-    Mockito.when(rs.first()).thenReturn(true);
-    Mockito.when(rs.getString("department")).thenReturn("Sales");
+    SqlInjectionLesson3 lesson = new SqlInjectionLesson3(dataSource);
 
-    // Act
-    AttackResult result = lesson.completed(newDepartment);
+    String maliciousQuery = "UPDATE employees SET department='Sales' WHERE last_name='Barnett';";
+    AttackResult result = lesson.injectableQuery(maliciousQuery);
 
-    // Assert: 1) ensure PreparedStatement was used with expected SQL and parameter
-    Mockito.verify(connection)
-        .prepareStatement(
-            Mockito.eq("UPDATE employees SET department = ? WHERE last_name = 'Barnett'"));
-    Mockito.verify(updateStmt).setString(1, newDepartment);
-    Mockito.verify(updateStmt).executeUpdate();
+    // The updated implementation must NOT execute the user-supplied SQL and instead
+    // run the safe dummy query.
+    Mockito.verify(stmt).executeQuery("SELECT 1");
+    Mockito.verify(stmt, Mockito.never()).executeUpdate(Mockito.anyString());
 
-    // Assert: 2) injection-like department should not be executed as raw SQL
-    ArgumentCaptor<String> anyRawSql = ArgumentCaptor.forClass(String.class);
-    Mockito.verify(connection, Mockito.never()).createStatement(); // no generic, unparameterized Statement for updates
-
-    // Assert: 3) lesson can still succeed with the secure flow
-    assertTrue(result.isSuccess());
-  }
-
-  @Test
-  void completed_shouldNotExecuteArbitrarySqlFromUserInput() throws Exception {
-    // Arrange
-    String malicious = "Sales'; DROP TABLE employees; --";
-    Connection connection = Mockito.mock(Connection.class);
-    PreparedStatement updateStmt = Mockito.mock(PreparedStatement.class);
-    Statement checkStmt = Mockito.mock(Statement.class);
-    ResultSet rs = Mockito.mock(ResultSet.class);
-
-    Mockito.when(dataSource.getConnection()).thenReturn(connection);
-    Mockito.when(
-            connection.prepareStatement(
-                Mockito.eq("UPDATE employees SET department = ? WHERE last_name = 'Barnett'")))
-        .thenReturn(updateStmt);
-    Mockito.when(
-            connection.createStatement(
-                Mockito.eq(ResultSet.TYPE_SCROLL_INSENSITIVE),
-                Mockito.eq(ResultSet.CONCUR_READ_ONLY)))
-        .thenReturn(checkStmt);
-    Mockito.when(
-            checkStmt.executeQuery(
-                Mockito.eq("SELECT * FROM employees WHERE last_name='Barnett';")))
-        .thenReturn(rs);
-
-    Mockito.when(rs.first()).thenReturn(true);
-    Mockito.when(rs.getString("department")).thenReturn("Sales");
-
-    // Act
-    AttackResult result = lesson.completed(malicious);
-
-    // Assert: 1) malicious string is only ever bound as a parameter
-    Mockito.verify(updateStmt).setString(1, malicious);
-
-    // Assert: 2) arbitrary SQL text is never executed directly
-    Mockito.verify(connection, Mockito.never()).createStatement(Mockito.anyInt(), Mockito.anyInt());
-    assertFalse(result.isFailure());
+    assertEquals(
+        "sql-injection.arbitrary-query-blocked",
+        result.getFeedbackId(),
+        "Arbitrary SQL should be blocked with explicit feedback");
   }
 }

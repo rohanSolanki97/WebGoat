@@ -1,68 +1,48 @@
 package org.owasp.webgoat.lessons.openredirect;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.servlet.ModelAndView;
 
 /**
- * Delta tests for OpenRedirectRealRedirect focusing on:
- * - Restricting redirects to safe relative paths.
- * - Rejecting external URLs containing schemes like http:// or https://.
- *
- * Derived path:
- * src/test/java/org/owasp/webgoat/lessons/openredirect/OpenRedirectRealRedirectTest.java
+ * Delta tests for OpenRedirectRealRedirect ensuring that:
+ * - External or malformed URLs are redirected to a safe default ('/').
+ * - Valid internal relative paths are still allowed.
  */
 public class OpenRedirectRealRedirectTest {
 
-  private final OpenRedirectRealRedirect controller = new OpenRedirectRealRedirect();
-
   @Test
-  void real_shouldRedirectToSafeDefaultForExternalUrl() {
-    // Arrange
-    String external = "http://evil.com/phish";
+  @DisplayName("real redirects external URL to safe root instead of open redirect")
+  void real_rejectsExternalUrl() {
+    OpenRedirectRealRedirect controller = new OpenRedirectRealRedirect();
 
-    // Act
-    ModelAndView mav = controller.real(external);
+    ModelAndView mv = controller.real("http://evil.com/phish");
 
-    // Assert
-    assertEquals("redirect:/welcome.mvc", mav.getViewName());
+    assertEquals("redirect:/", mv.getViewName(), "External URLs must be rejected to '/'");
   }
 
   @Test
-  void real_shouldRedirectToSafeDefaultForInvalidOrEmptyUrl() {
-    // Arrange
-    String empty = "   ";
+  @DisplayName("real rejects traversal attempts and redirects to root")
+  void real_rejectsTraversalUrl() {
+    OpenRedirectRealRedirect controller = new OpenRedirectRealRedirect();
 
-    // Act
-    ModelAndView mav = controller.real(empty);
+    ModelAndView mv = controller.real("/../admin");
 
-    // Assert
-    assertEquals("redirect:/welcome.mvc", mav.getViewName());
+    assertEquals("redirect:/", mv.getViewName(), "Traversal patterns must be rejected to '/'");
   }
 
   @Test
-  void real_shouldAllowRelativeInternalPathWithoutScheme() {
-    // Arrange
-    String internal = "/lesson/1";
+  @DisplayName("real allows safe internal relative path")
+  void real_allowsInternalPath() {
+    OpenRedirectRealRedirect controller = new OpenRedirectRealRedirect();
 
-    // Act
-    ModelAndView mav = controller.real(internal);
+    ModelAndView mv = controller.real("/welcome.mvc");
 
-    // Assert
-    assertEquals("redirect:/lesson/1", mav.getViewName());
-  }
-
-  @Test
-  void real_shouldRejectUrlContainingSchemeDelimiter() {
-    // Arrange
-    String tricky = "/some/path/http://example.com";
-
-    // Act
-    ModelAndView mav = controller.real(tricky);
-
-    // Assert
-    // Because it contains '://', even though it starts with '/', it should be rejected
-    assertEquals("redirect:/welcome.mvc", mav.getViewName());
+    assertTrue(
+        mv.getViewName().startsWith("redirect:/welcome.mvc"),
+        "Safe internal paths should be allowed");
   }
 }

@@ -54,8 +54,9 @@ public class BlindSendFileAssignment implements AssignmentEndpoint, Initializabl
   private void createSecretFileWithRandomContents(WebGoatUser user) {
     var fileContents = "WebGoat 8.0 rocks... (" + randomAlphabetic(10) + ")";
     userToFileContents.put(user, fileContents);
-    // Sanitize username to prevent path traversal when creating directory
-    File targetDirectory = new File(webGoatHomeDirectory, "/XXE/" + FilenameUtils.getName(user.getUsername()));
+    // Sanitize username to prevent path traversal in directory creation
+    String sanitizedUsername = FilenameUtils.getName(user.getUsername());
+    File targetDirectory = new File(webGoatHomeDirectory, "/XXE/" + sanitizedUsername);
     if (!targetDirectory.exists()) {
       targetDirectory.mkdirs();
     }
@@ -78,8 +79,6 @@ public class BlindSendFileAssignment implements AssignmentEndpoint, Initializabl
     }
 
     try {
-      // The comments.parseXml method should be secured against XXE. 
-      // Assuming 'false' parameter disables external entities or that the library handles it securely.
       Comment comment = comments.parseXml(commentStr, false);
       if (fileContentsForUser.contains(comment.getText())) {
         comment.setText("Nice try, you need to send the file to WebWolf");

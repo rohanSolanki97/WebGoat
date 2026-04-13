@@ -696,7 +696,7 @@ $.fn.ajaxSubmit = function(options) {
                         xhr.responseText = ta.value;
                         // support for XHR 'status' & 'statusText' emulation :
                         xhr.status = Number( ta.getAttribute('status') ) || xhr.status;
-                        xhr.statusText = ta.getAttribute('statusText') || ta.getAttribute('statusText');
+                        xhr.statusText = ta.getAttribute('statusText') || xhr.statusText;
                     }
                     else if (scr) {
                         // account for browsers injecting pre around json response
@@ -800,10 +800,6 @@ $.fn.ajaxSubmit = function(options) {
             }
             return (doc && doc.documentElement && doc.documentElement.nodeName != 'parsererror') ? doc : null;
         };
-        var parseJSON = $.parseJSON || function(s) {
-            // Replaced eval with JSON.parse for security
-            return JSON.parse(s);
-        };
 
         var httpData = function( xhr, type, s ) { // mostly lifted from jq1.4.4
 
@@ -819,12 +815,22 @@ $.fn.ajaxSubmit = function(options) {
             if (s && s.dataFilter) {
                 data = s.dataFilter(data, type);
             }
+
+            // Note: Usage of $.parseJSON/JSON.parse and $.globalEval on response
+            // is retained for backward compatibility, but should not be fed
+            // directly with untrusted user-controlled data.
             if (typeof data === 'string') {
                 if (type === 'json' || !type && ct.indexOf('json') >= 0) {
-                    data = parseJSON(data);
-                } else if (type === "script" || !type && ct.indexOf("javascript") >= 0) {
-                    $.globalEval(data);
+                    if ($.parseJSON) {
+                        data = $.parseJSON(data);
+                    } else {
+                        data = JSON.parse(data);
+                    }
                 }
+                // Removed unsafe script-string evaluation of response bodies to avoid
+                // code injection vulnerabilities (CWE-94). If script execution of
+                // server responses is required, it should be handled explicitly by
+                // the caller in a controlled manner.
             }
             return data;
         };

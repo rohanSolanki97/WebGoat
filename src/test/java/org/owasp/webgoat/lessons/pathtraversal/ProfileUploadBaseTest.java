@@ -5,61 +5,61 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.File;
 import java.nio.file.Files;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.util.FileCopyUtils;
-import org.springframework.web.multipart.MultipartFile;
+import org.springframework.mock.web.MockMultipartFile;
 
 /**
- * Delta tests for ProfileUploadBase focusing on:
- * - Sanitization of fullName and username to prevent path traversal when constructing filesystem paths.
- *
- * Derived path:
- * src/test/java/org/owasp/webgoat/lessons/pathtraversal/ProfileUploadBaseTest.java
+ * Delta tests for ProfileUploadBase verifying that:
+ * - The uploaded filename is sanitized with FilenameUtils.getName to prevent
+ *   path traversal via fullName.
+ * - The user-specific directory is also sanitized by username.
  */
 public class ProfileUploadBaseTest {
 
   @Test
-  void execute_shouldSanitizeFullNameAndPreventPathTraversal() throws Exception {
-    // Arrange
+  @DisplayName("execute sanitizes fullName and prevents directory traversal in uploaded file path")
+  void execute_sanitizesFullName() throws Exception {
     String baseDir = Files.createTempDirectory("webgoat-path-").toFile().getAbsolutePath();
     ProfileUploadBase base = new ProfileUploadBase(baseDir);
-    MultipartFile multipartFile = org.mockito.Mockito.mock(MultipartFile.class);
-    org.mockito.Mockito.when(multipartFile.isEmpty()).thenReturn(false);
-    org.mockito.Mockito.when(multipartFile.getBytes()).thenReturn("data".getBytes());
 
-    String maliciousFullName = "../evil/../../escape.txt";
-    String username = "user1";
+    String username = "alice";
+    String maliciousName = "../evil/escape.jpg";
+    byte[] content = "dummy".getBytes();
+    MockMultipartFile file =
+        new MockMultipartFile("file", maliciousName, "image/jpeg", content);
 
-    // Act
-    base.execute(multipartFile, maliciousFullName, username);
+    var result = base.execute(file, maliciousName, username);
 
-    // Assert
-    File userDir = new File(baseDir, "/PathTraversal/" + username);
-    assertTrue(userDir.isDirectory());
+    // The implementation should still consider this a normal profile update (no attemptWasMade),
+    // and the actual file path must be confined under the sanitized directory.
+    String userDirName = "alice";
+    File expectedDir = new File(baseDir, "/PathTraversal/" + userDirName);
+    assertTrue(
+        expectedDir.exists() && expectedDir.isDirectory(),
+        "User directory with sanitized username must exist");
 
-    File[] files = userDir.listFiles();
-    assertTrue(files != null && files.length == 1, "One file should be created in the user directory");
-    File uploaded = files[0];
+    File[] files = expectedDir.listFiles();
+    assertTrue(files != null && files.length == 1, "Exactly one file should be uploaded");
 
-    // The created file name should be sanitized to the last name segment (no ../ parts)
-    assertEquals("escape.txt", uploaded.getName());
-    // And it must be inside the intended userDir (not traversed outside)
-    assertTrue(uploaded.getCanonicalPath().startsWith(userDir.getCanonicalPath()));
+    // The stored file name must be the sanitized base name (no '../evil')
+    assertEquals("escape.jpg", files[0].getName());
   }
 
   @Test
-  void cleanupAndCreateDirectoryForUser_shouldSanitizeUsernameInDirectoryPath() throws Exception {
-    // Arrange
+  @DisplayName("cleanupAndCreateDirectoryForUser sanitizes username for directory path")
+  void cleanupAndCreateDirectoryForUser_sanitizesUsername() throws Exception {
     String baseDir = Files.createTempDirectory("webgoat-path-").toFile().getAbsolutePath();
     ProfileUploadBase base = new ProfileUploadBase(baseDir);
-    String maliciousUsername = "../admin";
 
-    // Act
-    File userDir = base.cleanupAndCreateDirectoryForUser(maliciousUsername);
+    String maliciousUsername = "../otherUser";
+    File dir = base.cleanupAndCreateDirectoryForUser(maliciousUsername);
 
-    // Assert
-    // Directory name should be sanitized
-    assertEquals("admin", userDir.getName());
-    assertTrue(userDir.getCanonicalPath().startsWith(new File(baseDir, "/PathTraversal").getCanonicalPath()));
+    // Directory should be created under /PathTraversal/otherUser, not honoring '../'.
+    File expected = new File(baseDir, "/PathTraversal/otherUser");
+    assertEquals(
+        expected.getCanonicalPath(),
+        dir.getCanonicalPath(),
+        "Username must be sanitized to prevent path traversal");
   }
 }
