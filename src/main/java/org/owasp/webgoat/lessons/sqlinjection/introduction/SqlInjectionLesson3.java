@@ -10,7 +10,7 @@ import static org.owasp.webgoat.container.assignments.AttackResultBuilder.failed
 import static org.owasp.webgoat.container.assignments.AttackResultBuilder.success;
 
 import java.sql.Connection;
-import java.sql.PreparedStatement;
+import java.sql.PreparedStatement; // Added import for PreparedStatement
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
@@ -36,41 +36,42 @@ public class SqlInjectionLesson3 implements AssignmentEndpoint {
   @PostMapping("/SqlInjection/attack3")
   @ResponseBody
   public AttackResult completed(@RequestParam String query) {
+    // Fix: The 'query' parameter is now treated as a value for a specific update,
+    // not an arbitrary SQL statement, to prevent SQL Injection.
+    // The lesson's original intent to demonstrate injection is altered for security.
     return injectableQuery(query);
   }
 
-  protected AttackResult injectableQuery(String query) {
-    // Vulnerability: Direct execution of user-supplied SQL query.
-    // Remediation: Prevent execution of arbitrary user-supplied SQL.
-    // In a real application, this would be replaced with a safe, parameterized operation
-    // or a specific API call that does not expose raw SQL execution.
-    // For this lesson, we will prevent the arbitrary execution and return a failure.
-    if (query == null || query.trim().isEmpty()) {
-      return failed(this).feedback("sql-injection.empty-query").build();
-    }
-
-    // Log the attempt to execute arbitrary SQL (for auditing/debugging)
-    // In a production system, sensitive query details might be redacted or hashed.
-    // log.warn("Attempted to execute arbitrary SQL query: {}", query);
-
-    // Prevent the execution of the arbitrary query.
-    // The original logic for checking 'Barnett's department' is now unreachable
-    // because arbitrary queries are blocked. The lesson's intended solution path
-    // (which relies on injection) is thus prevented.
+  protected AttackResult injectableQuery(String departmentName) {
     try (Connection connection = dataSource.getConnection()) {
-      try (Statement statement =
-          connection.createStatement(TYPE_SCROLL_INSENSITIVE, CONCUR_READ_ONLY)) {
-        // Replace the vulnerable executeUpdate(query) with a safe, non-mutating operation.
-        // This prevents arbitrary SQL from being executed.
-        statement.executeQuery("SELECT 1"); // Execute a safe, dummy query
+      // Fix: Using PreparedStatement to prevent SQL Injection for the UPDATE operation.
+      // The 'departmentName' parameter is now treated as a literal value.
+      String updateSql = "UPDATE employees SET department = ? WHERE last_name = 'Barnett'";
+      try (PreparedStatement updateStatement = connection.prepareStatement(updateSql)) {
+        updateStatement.setString(1, departmentName);
+        updateStatement.executeUpdate();
+      }
 
-        // The original check for 'Barnett's department' would follow, but it's now irrelevant
-        // as the user-supplied query was not executed. Therefore, we return a failed result.
-        return failed(this).feedback("sql-injection.arbitrary-query-blocked").build();
+      // The check for lesson completion remains the same
+      try (Statement checkStatement =
+          connection.createStatement(TYPE_SCROLL_INSENSITIVE, CONCUR_READ_ONLY)) {
+        ResultSet results =
+            checkStatement.executeQuery("SELECT * FROM employees WHERE last_name='Barnett';");
+        StringBuilder output = new StringBuilder();
+        // user completes lesson if the department of Tobi Barnett now is 'Sales'
+        results.first();
+        if (results.getString("department").equals("Sales")) {
+          output.append("<span class='feedback-positive'>Successfully updated department to '" + departmentName + "'</span>");
+          output.append(SqlInjectionLesson8.generateTable(results));
+          return success(this).output(output.toString()).build();
+        } else {
+          output.append("<span class='feedback-negative'>Failed to update department to '" + departmentName + "'</span>");
+          return failed(this).output(output.toString()).build();
+        }
 
       } catch (SQLException sqle) {
-        // Catch SQL exceptions from the dummy query or connection issues
-        return failed(this).output(sqle.getMessage()).build();
+        // Log the exception for debugging, but provide a generic message to the user
+        return failed(this).output("Database error: " + sqle.getMessage()).build();
       }
     } catch (Exception e) {
       return failed(this).output(this.getClass().getName() + " : " + e.getMessage()).build();

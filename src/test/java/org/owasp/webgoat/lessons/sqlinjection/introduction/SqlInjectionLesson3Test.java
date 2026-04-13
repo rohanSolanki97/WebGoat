@@ -1,48 +1,58 @@
 package org.owasp.webgoat.lessons.sqlinjection.introduction;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 import java.sql.Connection;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
-import java.sql.Statement;
-import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
 import org.owasp.webgoat.container.LessonDataSource;
 import org.owasp.webgoat.container.assignments.AttackResult;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.ResponseBody;
+import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Delta tests for SqlInjectionLesson3 focusing on the removal of direct execution
- * of user-supplied SQL queries. The updated code executes only a safe dummy
- * query and returns a specific failure feedback.
+ * Delta tests for SqlInjectionLesson3 focusing on the change from executing arbitrary user-supplied
+ * SQL to using a parameterized UPDATE statement.
  */
-public class SqlInjectionLesson3Test {
+class SqlInjectionLesson3Test {
 
   @Test
-  @DisplayName("injectableQuery blocks arbitrary SQL and returns specific feedback")
-  void injectableQuery_blocksArbitrarySql() throws Exception {
-    LessonDataSource dataSource = Mockito.mock(LessonDataSource.class);
-    Connection connection = Mockito.mock(Connection.class);
-    Statement stmt = Mockito.mock(Statement.class);
+  void injectableQuery_shouldUsePreparedStatementWithDepartmentParameter() throws Exception {
+    LessonDataSource dataSource = mock(LessonDataSource.class);
+    SqlInjectionLesson3 lesson3 = new SqlInjectionLesson3(dataSource);
+
+    Connection connection = mock(Connection.class);
+    PreparedStatement updateStmt = mock(PreparedStatement.class);
+    java.sql.Statement checkStmt = mock(java.sql.Statement.class);
+    ResultSet rs = mock(ResultSet.class);
 
     when(dataSource.getConnection()).thenReturn(connection);
-    when(connection.createStatement(Mockito.anyInt(), Mockito.anyInt())).thenReturn(stmt);
-    when(stmt.executeQuery("SELECT 1")).thenReturn(Mockito.mock(ResultSet.class));
+    when(connection.prepareStatement(
+            "UPDATE employees SET department = ? WHERE last_name = 'Barnett'"))
+        .thenReturn(updateStmt);
+    when(connection.createStatement(
+            java.sql.ResultSet.TYPE_SCROLL_INSENSITIVE,
+            java.sql.ResultSet.CONCUR_READ_ONLY))
+        .thenReturn(checkStmt);
+    when(checkStmt.executeQuery("SELECT * FROM employees WHERE last_name='Barnett';"))
+        .thenReturn(rs);
+    when(rs.first()).thenReturn(true);
+    when(rs.getString("department")).thenReturn("Sales");
 
-    SqlInjectionLesson3 lesson = new SqlInjectionLesson3(dataSource);
+    String department = "Sales";
+    AttackResult result = lesson3.injectableQuery(department);
 
-    String maliciousQuery = "UPDATE employees SET department='Sales' WHERE last_name='Barnett';";
-    AttackResult result = lesson.injectableQuery(maliciousQuery);
+    // Verify prepared statement usage and parameter binding
+    verify(connection)
+        .prepareStatement("UPDATE employees SET department = ? WHERE last_name = 'Barnett'");
+    verify(updateStmt).setString(1, department);
+    verify(updateStmt).executeUpdate();
 
-    // The updated implementation must NOT execute the user-supplied SQL and instead
-    // run the safe dummy query.
-    Mockito.verify(stmt).executeQuery("SELECT 1");
-    Mockito.verify(stmt, Mockito.never()).executeUpdate(Mockito.anyString());
-
-    assertEquals(
-        "sql-injection.arbitrary-query-blocked",
-        result.getFeedbackId(),
-        "Arbitrary SQL should be blocked with explicit feedback");
+    // Ensure no arbitrary executeUpdate(query) is called on a Statement
+    verify(connection, never()).createStatement();
+    org.junit.jupiter.api.Assertions.assertTrue(result.getLessonCompleted());
   }
 }

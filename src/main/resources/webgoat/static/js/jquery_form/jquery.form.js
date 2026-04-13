@@ -665,9 +665,6 @@ $.fn.ajaxSubmit = function(options) {
                         setTimeout(cb, 250);
                         return;
                     }
-                    // let this fall through because server response could be an empty document
-                    //log('Could not access iframe DOM after mutiple tries.');
-                    //throw 'DOMException: not available';
                 }
 
                 //log('response detected');
@@ -800,6 +797,12 @@ $.fn.ajaxSubmit = function(options) {
             }
             return (doc && doc.documentElement && doc.documentElement.nodeName != 'parsererror') ? doc : null;
         };
+        var parseJSON = $.parseJSON || function(s) {
+            /*jslint evil:true */
+            // SECURITY FIX: avoid using eval/Function-based parsing for untrusted input.
+            // Prefer native JSON.parse when available.
+            return JSON.parse(s);
+        };
 
         var httpData = function( xhr, type, s ) { // mostly lifted from jq1.4.4
 
@@ -815,22 +818,14 @@ $.fn.ajaxSubmit = function(options) {
             if (s && s.dataFilter) {
                 data = s.dataFilter(data, type);
             }
-
-            // Note: Usage of $.parseJSON/JSON.parse and $.globalEval on response
-            // is retained for backward compatibility, but should not be fed
-            // directly with untrusted user-controlled data.
             if (typeof data === 'string') {
                 if (type === 'json' || !type && ct.indexOf('json') >= 0) {
-                    if ($.parseJSON) {
-                        data = $.parseJSON(data);
-                    } else {
-                        data = JSON.parse(data);
-                    }
+                    data = parseJSON(data);
+                } else if (type === "script" || !type && ct.indexOf("javascript") >= 0) {
+                    // SECURITY FIX: do not automatically execute arbitrary script responses.
+                    // If script execution is required, the caller should explicitly handle it.
+                    // $.globalEval(data);  // removed for security
                 }
-                // Removed unsafe script-string evaluation of response bodies to avoid
-                // code injection vulnerabilities (CWE-94). If script execution of
-                // server responses is required, it should be handled explicitly by
-                // the caller in a controlled manner.
             }
             return data;
         };

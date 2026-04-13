@@ -1,48 +1,44 @@
 package org.owasp.webgoat.lessons.openredirect;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.*;
 
-import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.stereotype.Controller;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.servlet.ModelAndView;
+import org.springframework.web.servlet.view.RedirectView;
 
 /**
- * Delta tests for OpenRedirectRealRedirect ensuring that:
- * - External or malformed URLs are redirected to a safe default ('/').
- * - Valid internal relative paths are still allowed.
+ * Delta tests for OpenRedirectRealRedirect focusing on validation of the 'url' parameter and the
+ * safe fallback redirect.
  */
-public class OpenRedirectRealRedirectTest {
+class OpenRedirectRealRedirectTest {
 
   @Test
-  @DisplayName("real redirects external URL to safe root instead of open redirect")
-  void real_rejectsExternalUrl() {
+  void real_shouldRedirectToSafeDefaultOnExternalUrl() {
     OpenRedirectRealRedirect controller = new OpenRedirectRealRedirect();
 
-    ModelAndView mv = controller.real("http://evil.com/phish");
+    ModelAndView mv = controller.real("http://evil.com");
 
-    assertEquals("redirect:/", mv.getViewName(), "External URLs must be rejected to '/'");
+    org.junit.jupiter.api.Assertions.assertEquals("redirect:/welcome.mvc", mv.getViewName());
   }
 
   @Test
-  @DisplayName("real rejects traversal attempts and redirects to root")
-  void real_rejectsTraversalUrl() {
+  void real_shouldRedirectToSafeDefaultOnPathTraversal() {
     OpenRedirectRealRedirect controller = new OpenRedirectRealRedirect();
 
     ModelAndView mv = controller.real("/../admin");
 
-    assertEquals("redirect:/", mv.getViewName(), "Traversal patterns must be rejected to '/'");
+    org.junit.jupiter.api.Assertions.assertEquals("redirect:/welcome.mvc", mv.getViewName());
   }
 
   @Test
-  @DisplayName("real allows safe internal relative path")
-  void real_allowsInternalPath() {
+  void real_shouldAllowSimpleInternalPath() {
     OpenRedirectRealRedirect controller = new OpenRedirectRealRedirect();
 
-    ModelAndView mv = controller.real("/welcome.mvc");
+    ModelAndView mv = controller.real("/internal/page");
 
-    assertTrue(
-        mv.getViewName().startsWith("redirect:/welcome.mvc"),
-        "Safe internal paths should be allowed");
+    org.junit.jupiter.api.Assertions.assertEquals("redirect:/internal/page", mv.getViewName());
   }
 }

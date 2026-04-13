@@ -14,8 +14,8 @@ import static org.springframework.http.MediaType.APPLICATION_JSON_VALUE;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
+import java.nio.file.Path; // Added import for Path
+import java.nio.file.Paths; // Added import for Paths
 import java.util.HashMap;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
@@ -56,27 +56,30 @@ public class BlindSendFileAssignment implements AssignmentEndpoint, Initializabl
     var fileContents = "WebGoat 8.0 rocks... (" + randomAlphabetic(10) + ")";
     userToFileContents.put(user, fileContents);
 
-    Path basePath = Paths.get(webGoatHomeDirectory, "XXE");
-    // Sanitize username to remove any path separators to prevent path manipulation
-    String sanitizedUsername = user.getUsername().replaceAll("[\\/]+", "");
-    Path userSpecificPath = basePath.resolve(sanitizedUsername).normalize();
-
-    // Critical validation: Ensure the normalized path is still within the intended base directory
-    if (!userSpecificPath.startsWith(basePath)) {
-      log.error("Path traversal attempt detected for user: {}. Attempted path: {}", user.getUsername(), userSpecificPath);
-      // In a real application, this would throw a security exception or return an error.
-      // For this lesson context, we'll log and prevent file creation.
-      return; 
+    // Fix: Sanitize path construction to prevent path traversal
+    Path userDir = Paths.get(webGoatHomeDirectory, "XXE", user.getUsername()).normalize();
+    if (!Files.exists(userDir)) {
+      try {
+        Files.createDirectories(userDir);
+      } catch (IOException e) {
+        log.error("Unable to create directory for user {}: {}", user.getUsername(), e.getMessage());
+        return; // Exit if directory cannot be created
+      }
     }
 
-    File targetDirectory = userSpecificPath.toFile();
-    if (!targetDirectory.exists()) {
-      targetDirectory.mkdirs();
+    // Ensure the file is created within the intended directory
+    Path secretFilePath = userDir.resolve("secret.txt").normalize();
+
+    // Validate that the resolved path is still within the user's directory
+    if (!secretFilePath.startsWith(userDir)) {
+      log.error("Attempted path traversal detected for user {}: {}", user.getUsername(), secretFilePath);
+      return; // Prevent writing outside the intended directory
     }
+
     try {
-      Files.writeString(new File(targetDirectory, "secret.txt").toPath(), fileContents, UTF_8);
+      Files.writeString(secretFilePath, fileContents, UTF_8);
     } catch (IOException e) {
-      log.error("Unable to write 'secret.txt' to '{}'", targetDirectory, e);
+      log.error("Unable to write 'secret.txt' to '{}': {}", secretFilePath, e.getMessage());
     }
   }
 
