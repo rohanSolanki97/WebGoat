@@ -11,7 +11,7 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InvalidClassException;
 import java.io.ObjectInputStream;
-import java.io.ObjectInputFilter; // New import for serialization filter
+import java.io.ObjectStreamClass;
 import java.util.Base64;
 import org.dummy.insecure.framework.VulnerableTaskHolder;
 import org.owasp.webgoat.container.assignments.AssignmentEndpoint;
@@ -41,14 +41,7 @@ public class InsecureDeserializationTask implements AssignmentEndpoint {
     b64token = token.replace('-', '+').replace('_', '/');
 
     try (ObjectInputStream ois =
-        new ObjectInputStream(new ByteArrayInputStream(Base64.getDecoder().decode(b64token)))) {
-
-      // Remediation: Applied JEP 290 serialization filter to restrict deserializable classes
-      ObjectInputFilter filter = ObjectInputFilter.Config.createFilter(
-          "org.dummy.insecure.framework.VulnerableTaskHolder;java.lang.String;java.lang.Number;java.util.Date;java.util.List;java.util.Map;java.util.Set;java.util.Collection;java.util.ArrayList;java.util.HashMap;java.util.HashSet;java.util.Arrays;java.lang.Boolean;java.lang.Byte;java.lang.Character;java.lang.Double;java.lang.Float;java.lang.Integer;java.lang.Long;java.lang.Short;java.math.BigDecimal;java.math.BigInteger;!*"
-      );
-      ois.setObjectInputFilter(filter);
-
+        new CustomObjectInputStream(new ByteArrayInputStream(Base64.getDecoder().decode(b64token)))) {
       before = System.currentTimeMillis();
       Object o = ois.readObject();
       if (!(o instanceof VulnerableTaskHolder)) {
@@ -74,5 +67,19 @@ public class InsecureDeserializationTask implements AssignmentEndpoint {
       return failed(this).build();
     }
     return success(this).build();
+  }
+
+  private static class CustomObjectInputStream extends ObjectInputStream {
+    public CustomObjectInputStream(ByteArrayInputStream in) throws IOException {
+      super(in);
+    }
+
+    @Override
+    protected Class<?> resolveClass(ObjectStreamClass desc) throws IOException, ClassNotFoundException {
+      if (!desc.getName().equals(VulnerableTaskHolder.class.getName())) {
+        throw new InvalidClassException("Unauthorized deserialization attempt", desc.getName());
+      }
+      return super.resolveClass(desc);
+    }
   }
 }

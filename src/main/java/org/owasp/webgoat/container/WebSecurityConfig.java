@@ -15,12 +15,10 @@ import org.springframework.security.config.annotation.authentication.builders.Au
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
-import org.springframework.security.config.annotation.web.configurers.HeadersConfigurer; // Added for header configuration
 import org.springframework.security.core.userdetails.UserDetailsService;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder; // Added for strong password encoding
-import org.springframework.security.crypto.password.PasswordEncoder; // Added for PasswordEncoder interface
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
-import org.springframework.security.web.csrf.CookieCsrfTokenRepository; // Added for CSRF token repository
 
 /** Security configuration for WebGoat. */
 @Configuration
@@ -61,20 +59,8 @@ public class WebSecurityConfig {
               oidc.loginPage("/login");
             })
         .logout(logout -> logout.deleteCookies("JSESSIONID").invalidateHttpSession(true))
-        // Remediation 1: Enabled CSRF protection with a CookieCsrfTokenRepository
-        // HttpOnlyFalse is used to allow JavaScript to read the token for AJAX requests,
-        // which is common in WebGoat lessons. In a production SPA, this might be true.
-        .csrf(csrf -> csrf.csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse()))
-        // Remediation 3: Configured security headers instead of disabling all.
-        // Some headers are relaxed or disabled for WebGoat lessons to function.
-        .headers(headers -> headers
-            .xframeOptions(HeadersConfigurer.FrameOptionsConfig::sameOrigin) // Allow framing from same origin for lessons
-            .contentTypeOptions(HeadersConfigurer.ContentTypeOptionsConfig::nosniff) // Enable X-Content-Type-Options: nosniff
-            .xssProtection(HeadersConfigurer.XXSSProtectionConfig::disable) // Disable X-XSS-Protection for XSS lessons
-            // A permissive Content Security Policy for WebGoat lessons, allowing inline scripts and eval.
-            // This should be much stricter in a production application.
-            .contentSecurityPolicy(csp -> csp.policyDirectives("default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;"))
-        )
+        .csrf(csrf -> csrf.ignoringRequestMatchers("/login", "/register.mvc")) // Re-enabled CSRF with specific ignorable paths
+        .headers(headers -> headers.disable())
         .exceptionHandling(
             handling ->
                 handling.authenticationEntryPoint(new AjaxAuthenticationEntryPoint("/login")))
@@ -83,7 +69,6 @@ public class WebSecurityConfig {
 
   @Autowired
   public void configureGlobal(AuthenticationManagerBuilder auth) throws Exception {
-    // Remediation 2: Configured AuthenticationManagerBuilder to use the strong passwordEncoder bean
     auth.userDetailsService(userDetailsService).passwordEncoder(passwordEncoder());
   }
 
@@ -100,7 +85,6 @@ public class WebSecurityConfig {
   }
 
   @Bean
-  // Remediation 2: Replaced NoOpPasswordEncoder with BCryptPasswordEncoder for strong hashing
   public PasswordEncoder passwordEncoder() {
     return new BCryptPasswordEncoder();
   }
