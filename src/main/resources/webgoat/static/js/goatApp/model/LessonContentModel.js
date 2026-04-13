@@ -19,7 +19,7 @@ define(['jquery',
         },
 
         loadData: function(options) {
-            this.urlRoot = _.escape(encodeURIComponent(options.name)) + '.lesson'
+            this.urlRoot = _.escape(encodeURIComponent(options.name)) + '.lesson';
             var self = this;
             this.fetch().done(function(data) {
                 self.setContent(data);
@@ -31,26 +31,18 @@ define(['jquery',
                 loadHelps = true;
             }
             this.set('content',content);
+            this.set('lessonUrl',document.URL.replace(/\.lesson.*/,'.lesson'));
 
-            // Use a precompiled, bounded regular expression to avoid
-            // inefficient backtracking (ReDoS) while preserving behavior.
-            // Original:
-            //   document.URL.replace(/\.lesson.*/,'.lesson')
-            //   /.*\.lesson\/(\d{1,4})$/
-            //
-            // The updated patterns are equivalent for expected inputs
-            // but avoid ambiguous leading wildcards.
-            this.set(
-                'lessonUrl',
-                document.URL.replace(/\.lesson(?:\/.*)?$/, '.lesson')
-            );
-
-            var pageNumMatch = document.URL.match(/\.lesson\/(\d{1,4})$/);
-            if (pageNumMatch) {
-                this.set('pageNum', pageNumMatch[1]);
+            // Use a safer, linear-time regex that avoids catastrophic backtracking
+            // Original: /.*\.lesson\/(\d{1,4})$/
+            // New:      /^.*\.lesson\/(\d{1,4})$/
+            var pageMatch = /^.*\.lesson\/(\d{1,4})$/.exec(document.URL);
+            if (pageMatch) {
+                this.set('pageNum', pageMatch[1]);
             } else {
                 this.set('pageNum',0);
             }
+
             this.trigger('content:loaded',this,loadHelps);
         },
 

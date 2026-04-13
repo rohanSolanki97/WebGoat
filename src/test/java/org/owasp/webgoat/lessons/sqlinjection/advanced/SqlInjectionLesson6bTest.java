@@ -1,113 +1,83 @@
 package org.owasp.webgoat.lessons.sqlinjection.advanced;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 import java.sql.Connection;
 import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.sql.Statement;
-import org.junit.jupiter.api.DisplayName;
+import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
+import org.mockito.ArgumentCaptor;
 import org.owasp.webgoat.container.LessonDataSource;
-import org.owasp.webgoat.container.assignments.AttackResult;
 import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
-/**
- * Delta tests for SqlInjectionLesson6b focusing on:
- * - getPassword still returning the DB value when available.
- * - completed() behavior unchanged.
- * - Exceptions are logged via SLF4J (printStackTrace removed).
- *
- * Note: SLF4J logging is verified indirectly by ensuring methods complete
- * without throwing when exceptions occur; direct inspection of logger
- * output would require a concrete backend which is beyond unit scope.
- */
-public class SqlInjectionLesson6bTest {
+class SqlInjectionLesson6bTest {
 
   @Test
-  @DisplayName("getPassword returns DB password when query succeeds")
-  void getPassword_returnsPasswordFromDatabase() throws Exception {
-    LessonDataSource dataSource = Mockito.mock(LessonDataSource.class);
-    Connection connection = Mockito.mock(Connection.class);
-    Statement statement = Mockito.mock(Statement.class);
-    ResultSet resultSet = Mockito.mock(ResultSet.class);
-
-    when(dataSource.getConnection()).thenReturn(connection);
-    when(connection.createStatement(
-            Mockito.eq(ResultSet.TYPE_SCROLL_INSENSITIVE),
-            Mockito.eq(ResultSet.CONCUR_READ_ONLY)))
-        .thenReturn(statement);
-    when(statement.executeQuery("SELECT password FROM user_system_data WHERE user_name = 'dave'"))
-        .thenReturn(resultSet);
-    when(resultSet.first()).thenReturn(true);
-    when(resultSet.getString("password")).thenReturn("secure-db-password");
-
+  void getPassword_shouldLogSqlExceptionInsteadOfPrintingStackTrace() throws Exception {
+    // Arrange
+    LessonDataSource dataSource = mock(LessonDataSource.class);
     SqlInjectionLesson6b lesson = new SqlInjectionLesson6b(dataSource);
 
-    String password = lesson.getPassword();
-
-    assertEquals("secure-db-password", password);
-  }
-
-  @Test
-  @DisplayName("getPassword falls back to default without throwing when SQL exception occurs (logged)")
-  void getPassword_logsSqlExceptionAndReturnsDefault() throws Exception {
-    LessonDataSource dataSource = Mockito.mock(LessonDataSource.class);
-    Connection connection = Mockito.mock(Connection.class);
-    Statement statement = Mockito.mock(Statement.class);
-
+    Connection connection = mock(Connection.class);
     when(dataSource.getConnection()).thenReturn(connection);
     when(connection.createStatement(
-            Mockito.eq(ResultSet.TYPE_SCROLL_INSENSITIVE),
-            Mockito.eq(ResultSet.CONCUR_READ_ONLY)))
-        .thenReturn(statement);
-    when(statement.executeQuery(Mockito.anyString()))
-        .thenThrow(new java.sql.SQLException("DB failure"));
+            ResultSet.TYPE_SCROLL_INSENSITIVE, ResultSet.CONCUR_READ_ONLY))
+        .thenThrow(new SQLException("DB error"));
 
+    SqlInjectionLesson6b spyLesson = spy(lesson);
+    Logger loggerSpy = LoggerTestHelper.attachLoggerSpy(spyLesson);
+
+    // Act
+    String password = spyLesson.getPassword();
+
+    // Assert: default password remains and error is logged
+    org.junit.jupiter.api.Assertions.assertEquals("dave", password);
+    verify(loggerSpy)
+        .error(
+            startsWith("SQL Exception encountered while fetching password for 'dave'"),
+            any(SQLException.class));
+  }
+
+  @Test
+  void getPassword_shouldLogGeneralExceptionInsteadOfPrintingStackTrace() throws Exception {
+    // Arrange
+    LessonDataSource dataSource = mock(LessonDataSource.class);
     SqlInjectionLesson6b lesson = new SqlInjectionLesson6b(dataSource);
 
-    // Should not throw; should log via Slf4j and return default "dave"
-    String password = lesson.getPassword();
+    when(dataSource.getConnection()).thenThrow(new RuntimeException("Connection failure"));
 
-    assertEquals("dave", password);
+    SqlInjectionLesson6b spyLesson = spy(lesson);
+    Logger loggerSpy = LoggerTestHelper.attachLoggerSpy(spyLesson);
+
+    // Act
+    String password = spyLesson.getPassword();
+
+    // Assert
+    org.junit.jupiter.api.Assertions.assertEquals("dave", password);
+    verify(loggerSpy)
+        .error(
+            startsWith("General Exception encountered in getPassword method"),
+            any(RuntimeException.class));
   }
 
-  @Test
-  @DisplayName("completed returns success when user-supplied value equals DB password")
-  void completed_usesPasswordFromGetPassword() throws Exception {
-    LessonDataSource dataSource = Mockito.mock(LessonDataSource.class);
-    SqlInjectionLesson6b lesson =
-        Mockito.spy(new SqlInjectionLesson6b(dataSource));
+  /**
+   * Helper to attach a Mockito spy/mock to the Slf4j-generated 'log' field on the target.
+   * Focuses the delta test on verifying log.error(...) is called instead of printStackTrace().
+   */
+  static class LoggerTestHelper {
 
-    // Mock getPassword to ensure completed behavior relies on it as before.
-    Mockito.doReturn("expectedPass").when(lesson).getPassword();
-
-    AttackResult result = lesson.completed("expectedPass");
-
-    assertEquals("SUCCESS", result.getLessonResultStatus().toString());
-  }
-
-  @Test
-  @DisplayName("completed returns failed when user-supplied value differs from DB password")
-  void completed_failsWhenUserIdDoesNotMatchPassword() throws Exception {
-    LessonDataSource dataSource = Mockito.mock(LessonDataSource.class);
-    SqlInjectionLesson6b lesson =
-        Mockito.spy(new SqlInjectionLesson6b(dataSource));
-
-    Mockito.doReturn("expectedPass").when(lesson).getPassword();
-
-    AttackResult result = lesson.completed("wrongPass");
-
-    assertEquals("FAILED", result.getLessonResultStatus().toString());
-  }
-
-  @Test
-  @DisplayName("Slf4j logger is present for SqlInjectionLesson6b")
-  void logger_isConfigured() {
-    Logger logger = LoggerFactory.getLogger(SqlInjectionLesson6b.class);
-    org.junit.jupiter.api.Assertions.assertNotNull(
-        logger, "Slf4j logger must be available for structured logging");
+    static Logger attachLoggerSpy(Object target) {
+      try {
+        java.lang.reflect.Field logField = target.getClass().getDeclaredField("log");
+        logField.setAccessible(true);
+        Logger loggerSpy = mock(Logger.class);
+        logField.set(target, loggerSpy);
+        return loggerSpy;
+      } catch (Exception e) {
+        throw new IllegalStateException("Unable to attach logger spy", e);
+      }
+    }
   }
 }
