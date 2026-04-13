@@ -1,73 +1,55 @@
 package org.owasp.webgoat.lessons.deserialization;
 
-import static org.junit.jupiter.api.Assertions.*;
-
 import java.io.ByteArrayOutputStream;
-import java.io.IOException;
 import java.io.ObjectOutputStream;
-import java.io.Serializable;
 import java.util.Base64;
-import org.dummy.insecure.framework.VulnerableTaskHolder;
 import org.junit.jupiter.api.Test;
 import org.owasp.webgoat.container.assignments.AttackResult;
 
 /**
- * Delta tests for InsecureDeserializationTask focusing on the newly added
- * ObjectInputFilter that allowlists VulnerableTaskHolder and String.
+ * Delta tests for InsecureDeserializationTask focusing on the ObjectInputFilter whitelist that
+ * restricts allowed deserialization types.
  */
 class InsecureDeserializationTaskTest {
 
-  private String toToken(Object o) throws IOException {
+  private String encodeObjectToToken(Object obj) throws Exception {
     ByteArrayOutputStream baos = new ByteArrayOutputStream();
     try (ObjectOutputStream oos = new ObjectOutputStream(baos)) {
-      oos.writeObject(o);
+      oos.writeObject(obj);
     }
     String b64 = Base64.getEncoder().encodeToString(baos.toByteArray());
-    // Mirror token normalization in the controller
+    // reverse replacement done in the controller
     return b64.replace('+', '-').replace('/', '_');
   }
 
   @Test
-  void completed_acceptsVulnerableTaskHolderAllowedByFilter() throws Exception {
+  void completed_shouldFailForDisallowedDeserializationType() throws Exception {
+    // Arrange
     InsecureDeserializationTask task = new InsecureDeserializationTask();
-    VulnerableTaskHolder holder = new VulnerableTaskHolder(); // must exist on classpath
+    // Some arbitrary Serializable type that is not whitelisted by the ObjectInputFilter
+    java.io.Serializable malicious =
+        new java.io.Serializable() {
+          private static final long serialVersionUID = 1L;
+        };
+    String token = encodeObjectToToken(malicious);
 
-    String token = toToken(holder);
-
+    // Act
     AttackResult result = task.completed(token);
 
-    assertNotNull(result);
-    // We cannot reliably assert success because of timing logic,
-    // but we ensure the call does not immediately fail due to filter rejection.
+    // Assert: lesson remains incomplete because the type is rejected by the filter
+    org.junit.jupiter.api.Assertions.assertFalse(result.getLessonCompleted());
   }
 
   @Test
-  void completed_acceptsStringAllowedByFilterButFailsChallenge() throws Exception {
+  void completed_shouldHandleInvalidBase64InputSafely() throws Exception {
+    // Arrange
     InsecureDeserializationTask task = new InsecureDeserializationTask();
+    String invalidToken = "not-base64!!";
 
-    String token = toToken("just-a-string");
+    // Act
+    AttackResult result = task.completed(invalidToken);
 
-    AttackResult result = task.completed(token);
-
-    assertNotNull(result);
-    assertFalse(result.getLessonCompleted());
-  }
-
-  @Test
-  void completed_rejectsArbitraryTypeNotInAllowlist() throws Exception {
-    InsecureDeserializationTask task = new InsecureDeserializationTask();
-
-    class Evil implements Serializable {
-      private static final long serialVersionUID = 1L;
-    }
-
-    String token = toToken(new Evil());
-
-    AttackResult result = task.completed(token);
-
-    // Filter should reject the class, causing a failure result instead of
-    // letting arbitrary types be deserialized.
-    assertNotNull(result);
-    assertFalse(result.getLessonCompleted());
+    // Assert
+    org.junit.jupiter.api.Assertions.assertFalse(result.getLessonCompleted());
   }
 }

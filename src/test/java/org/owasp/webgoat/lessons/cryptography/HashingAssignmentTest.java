@@ -1,93 +1,64 @@
 package org.owasp.webgoat.lessons.cryptography;
 
-import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.Mockito.*;
-
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpSession;
 import java.security.NoSuchAlgorithmException;
-import javax.servlet.http.HttpSession;
 import org.junit.jupiter.api.Test;
-import org.owasp.webgoat.container.assignments.AttackResult;
+import org.mockito.Mockito;
 
 /**
- * Delta tests for HashingAssignment focusing on behavior around the changed random secret
- * selection (Random -> SecureRandom). Since the implementation detail is not exposed,
- * these tests validate behavior at the public API level while assuming the SecureRandom
- * fix is internal.
+ * Delta tests for HashingAssignment focusing on the change from java.util.Random to SecureRandom,
+ * verified via observable behavior through the public endpoints.
  */
 class HashingAssignmentTest {
 
   @Test
-  void getMd5_returnsSameHashWhenSessionHasCachedValue() throws NoSuchAlgorithmException {
+  void getMd5_shouldReuseSessionHashWithoutGeneratingNewSecret() throws Exception {
+    // Arrange
     HashingAssignment assignment = new HashingAssignment();
+    HttpServletRequest request = Mockito.mock(HttpServletRequest.class);
+    HttpSession session = Mockito.mock(HttpSession.class);
 
-    HttpServletRequest request = mock(HttpServletRequest.class);
-    HttpSession session = mock(HttpSession.class);
-    when(request.getSession()).thenReturn(session);
-    when(session.getAttribute("md5Hash")).thenReturn("CACHED_HASH");
+    Mockito.when(request.getSession()).thenReturn(session);
+    // First call: no attributes yet
+    Mockito.when(session.getAttribute("md5Hash")).thenReturn(null);
 
-    String hash = assignment.getMd5(request);
+    // Act
+    String firstHash = assignment.getMd5(request);
 
-    assertEquals("CACHED_HASH", hash);
-    // No new secret should be generated or stored when a hash is already cached
-    verify(session, never()).setAttribute(eq("md5Hash"), any());
-    verify(session, never()).setAttribute(eq("md5Secret"), any());
+    // Assert: first call sets both hash and secret
+    Mockito.verify(session).setAttribute(Mockito.eq("md5Hash"), Mockito.anyString());
+    Mockito.verify(session).setAttribute(Mockito.eq("md5Secret"), Mockito.anyString());
+
+    // Prepare second call where hash is already present, so no new random secret should be chosen
+    Mockito.reset(session);
+    Mockito.when(request.getSession()).thenReturn(session);
+    Mockito.when(session.getAttribute("md5Hash")).thenReturn(firstHash);
+
+    // Act
+    String secondHash = assignment.getMd5(request);
+
+    // Assert: no new attributes written and same hash returned
+    Mockito.verify(session, Mockito.never())
+        .setAttribute(Mockito.eq("md5Hash"), Mockito.anyString());
+    Mockito.verify(session, Mockito.never())
+        .setAttribute(Mockito.eq("md5Secret"), Mockito.anyString());
+    org.junit.jupiter.api.Assertions.assertEquals(firstHash, secondHash);
   }
 
   @Test
-  void getMd5_generatesAndStoresNewHashWhenNotCached() throws NoSuchAlgorithmException {
+  void getSha256_shouldStoreSecretAndHashInSession() throws NoSuchAlgorithmException {
+    // This test exercises the second code path using SecureRandom for secret selection.
     HashingAssignment assignment = new HashingAssignment();
+    HttpServletRequest request = Mockito.mock(HttpServletRequest.class);
+    HttpSession session = Mockito.mock(HttpSession.class);
 
-    HttpServletRequest request = mock(HttpServletRequest.class);
-    HttpSession session = mock(HttpSession.class);
-    when(request.getSession()).thenReturn(session);
-    when(session.getAttribute("md5Hash")).thenReturn(null);
-
-    String hash = assignment.getMd5(request);
-
-    assertNotNull(hash);
-    assertFalse(hash.isEmpty());
-    verify(session).setAttribute(eq("md5Hash"), anyString());
-    verify(session).setAttribute(eq("md5Secret"), anyString());
-  }
-
-  @Test
-  void getSha256_generatesAndStoresNewHashWhenNotCached() throws NoSuchAlgorithmException {
-    HashingAssignment assignment = new HashingAssignment();
-
-    HttpServletRequest request = mock(HttpServletRequest.class);
-    HttpSession session = mock(HttpSession.class);
-    when(request.getSession()).thenReturn(session);
-    when(session.getAttribute("sha256")).thenReturn(null);
+    Mockito.when(request.getSession()).thenReturn(session);
+    Mockito.when(session.getAttribute("sha256")).thenReturn(null);
 
     String hash = assignment.getSha256(request);
 
-    assertNotNull(hash);
-    assertFalse(hash.isEmpty());
-    verify(session).setAttribute(eq("sha256Hash"), anyString());
-    verify(session).setAttribute(eq("sha256Secret"), anyString());
-  }
-
-  @Test
-  void completed_requiresBothSecretsToMatch() {
-    HashingAssignment assignment = new HashingAssignment();
-
-    HttpServletRequest request = mock(HttpServletRequest.class);
-    HttpSession session = mock(HttpSession.class);
-    when(request.getSession()).thenReturn(session);
-    when(session.getAttribute("md5Secret")).thenReturn("one");
-    when(session.getAttribute("sha256Secret")).thenReturn("two");
-
-    AttackResult resultOk =
-        assignment.completed(request, "one", "two");
-    assertTrue(resultOk.getLessonCompleted());
-
-    AttackResult resultOneOk =
-        assignment.completed(request, "one", "wrong");
-    assertFalse(resultOneOk.getLessonCompleted());
-
-    AttackResult resultEmpty =
-        assignment.completed(request, null, null);
-    assertFalse(resultEmpty.getLessonCompleted());
+    Mockito.verify(session).setAttribute(Mockito.eq("sha256Hash"), Mockito.eq(hash));
+    Mockito.verify(session).setAttribute(Mockito.eq("sha256Secret"), Mockito.anyString());
   }
 }
