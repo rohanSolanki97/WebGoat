@@ -10,7 +10,7 @@ import static org.owasp.webgoat.container.assignments.AttackResultBuilder.failed
 import static org.owasp.webgoat.container.assignments.AttackResultBuilder.success;
 
 import java.sql.Connection;
-import java.sql.PreparedStatement; // Added import for PreparedStatement
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
@@ -35,48 +35,38 @@ public class SqlInjectionLesson3 implements AssignmentEndpoint {
 
   @PostMapping("/SqlInjection/attack3")
   @ResponseBody
-  public AttackResult completed(@RequestParam String query) {
-    return injectableQuery(query);
+  public AttackResult completed(@RequestParam String departmentValue) {
+    return injectableQuery(departmentValue);
   }
 
-  protected AttackResult injectableQuery(String query) {
-    // The lesson's original intent is to demonstrate SQL injection via UPDATE. To fix the
-    // vulnerability while preserving the lesson's educational goal (albeit in a controlled way),
-    // we will only allow a specific UPDATE statement and parameterize its values.
-    // Arbitrary SQL execution is prevented.
-    if (!query.toLowerCase().startsWith("update employees set department = '")
-        || !query.toLowerCase().endsWith("' where last_name = 'barnett'")) {
-      return failed(this).output("Only specific UPDATE statements are allowed for this lesson.").build();
-    }
-
+  protected AttackResult injectableQuery(String departmentValue) {
     try (Connection connection = dataSource.getConnection()) {
-      // Extract the department from the user's query
-      String department = query.substring(
-          query.indexOf("'") + 1,
-          query.indexOf("' where last_name = 'barnett'"));
+      // The original vulnerability allowed arbitrary SQL execution via statement.executeUpdate(query).
+      // To remediate, we now use a PreparedStatement with a fixed SQL template.
+      // The user-supplied 'departmentValue' is treated as a parameter for the department field,
+      // preventing SQL injection while preserving the lesson's goal of updating the department.
+      try (PreparedStatement updateStatement =
+          connection.prepareStatement(
+              "UPDATE employees SET department = ? WHERE last_name='Barnett' AND first_name='Tobi'")) {
+        updateStatement.setString(1, departmentValue);
+        updateStatement.executeUpdate();
 
-      // Use PreparedStatement for the UPDATE operation
-      String updateSql = "UPDATE employees SET department = ? WHERE last_name = 'Barnett'";
-      try (PreparedStatement preparedStatement = connection.prepareStatement(updateSql)) {
-        preparedStatement.setString(1, department);
-        preparedStatement.executeUpdate();
-      }
-
-      try (Statement checkStatement =
-          connection.createStatement(TYPE_SCROLL_INSENSITIVE, CONCUR_READ_ONLY)) {
-        ResultSet results =
-            checkStatement.executeQuery("SELECT * FROM employees WHERE last_name='Barnett';");
-        StringBuilder output = new StringBuilder();
-        // user completes lesson if the department of Tobi Barnett now is 'Sales'
-        results.first();
-        if (results.getString("department").equals("Sales")) {
-          output.append("<span class='feedback-positive'>" + query + "</span>");
-          output.append(SqlInjectionLesson8.generateTable(results));
-          return success(this).output(output.toString()).build();
-        } else {
-          return failed(this).output(output.toString()).build();
+        // The checkStatement is not user-controlled and can remain a Statement
+        try (Statement checkStatement =
+            connection.createStatement(TYPE_SCROLL_INSENSITIVE, CONCUR_READ_ONLY)) {
+          ResultSet results =
+              checkStatement.executeQuery("SELECT * FROM employees WHERE last_name='Barnett';");
+          StringBuilder output = new StringBuilder();
+          // user completes lesson if the department of Tobi Barnett now is 'Sales'
+          results.first();
+          if (results.getString("department").equals("Sales")) {
+            output.append("<span class='feedback-positive'>" + departmentValue + "</span>");
+            output.append(SqlInjectionLesson8.generateTable(results));
+            return success(this).output(output.toString()).build();
+          } else {
+            return failed(this).output(output.toString()).build();
+          }
         }
-
       } catch (SQLException sqle) {
         return failed(this).output(sqle.getMessage()).build();
       }

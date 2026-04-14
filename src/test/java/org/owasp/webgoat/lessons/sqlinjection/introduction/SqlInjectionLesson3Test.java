@@ -7,6 +7,7 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.Statement;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
@@ -14,68 +15,88 @@ import org.owasp.webgoat.container.LessonDataSource;
 import org.owasp.webgoat.container.assignments.AttackResult;
 
 /**
- * Test file path (derived):
- * src/test/java/org/owasp/webgoat/lessons/sqlinjection/introduction/SqlInjectionLesson3Test.java
- *
- * Delta tests for SqlInjectionLesson3 focusing on:
- * - restriction of the user query to a specific UPDATE pattern,
- * - use of PreparedStatement rather than executing arbitrary SQL from user input.
+ * Delta tests for SqlInjectionLesson3 focusing on the change from arbitrary SQL execution of a user
+ * controlled query to a parameterized UPDATE statement using departmentValue.
  */
-class SqlInjectionLesson3Test {
+public class SqlInjectionLesson3Test {
 
-  @Test
-  void injectableQuery_rejectsArbitrarySql() {
-    LessonDataSource dataSource = Mockito.mock(LessonDataSource.class);
-    SqlInjectionLesson3 lesson = new SqlInjectionLesson3(dataSource);
+  private LessonDataSource dataSource;
+  private SqlInjectionLesson3 lesson3;
 
-    String arbitraryQuery = "DROP TABLE employees;";
+  private Connection connection;
+  private PreparedStatement updateStatement;
+  private Statement checkStatement;
+  private ResultSet resultSet;
 
-    AttackResult result = lesson.injectableQuery(arbitraryQuery);
+  @BeforeEach
+  void setup() throws Exception {
+    dataSource = Mockito.mock(LessonDataSource.class);
+    lesson3 = new SqlInjectionLesson3(dataSource);
 
-    assertFalse(
-        result.getLessonCompleted(),
-        "Arbitrary SQL must not be accepted or cause lesson completion after the fix");
-  }
-
-  @Test
-  void injectableQuery_usesPreparedStatementForAllowedUpdate() throws Exception {
-    LessonDataSource dataSource = Mockito.mock(LessonDataSource.class);
-    SqlInjectionLesson3 lesson = new SqlInjectionLesson3(dataSource);
-
-    Connection connection = Mockito.mock(Connection.class);
-    PreparedStatement preparedStatement = Mockito.mock(PreparedStatement.class);
-    Statement checkStatement = Mockito.mock(Statement.class);
-    ResultSet resultSet = Mockito.mock(ResultSet.class);
+    connection = Mockito.mock(Connection.class);
+    updateStatement = Mockito.mock(PreparedStatement.class);
+    checkStatement = Mockito.mock(Statement.class);
+    resultSet = Mockito.mock(ResultSet.class);
 
     Mockito.when(dataSource.getConnection()).thenReturn(connection);
-    Mockito.when(connection.prepareStatement(Mockito.anyString())).thenReturn(preparedStatement);
+    Mockito
+        .when(connection.prepareStatement(Mockito.anyString()))
+        .thenReturn(updateStatement);
     Mockito
         .when(connection.createStatement(
             Mockito.eq(ResultSet.TYPE_SCROLL_INSENSITIVE),
             Mockito.eq(ResultSet.CONCUR_READ_ONLY)))
         .thenReturn(checkStatement);
     Mockito.when(checkStatement.executeQuery(Mockito.anyString())).thenReturn(resultSet);
+  }
+
+  @Test
+  void injectableQuery_usesPreparedStatementWithSingleParameter() throws Exception {
+    // Arrange
+    String departmentValue = "Sales";
+
     Mockito.when(resultSet.first()).thenReturn(true);
     Mockito.when(resultSet.getString("department")).thenReturn("Sales");
 
-    String allowedQuery =
-        "UPDATE employees SET department = 'Sales' WHERE last_name = 'Barnett'";
-
-    AttackResult result = lesson.injectableQuery(allowedQuery);
-
     ArgumentCaptor<String> sqlCaptor = ArgumentCaptor.forClass(String.class);
+
+    // Act
+    AttackResult result = lesson3.injectableQuery(departmentValue);
+
+    // Assert: verify the fixed UPDATE statement and that only the department is parameterized
     Mockito.verify(connection).prepareStatement(sqlCaptor.capture());
     String usedSql = sqlCaptor.getValue();
-    org.junit.jupiter.api.Assertions.assertEquals(
-        "UPDATE employees SET department = ? WHERE last_name = 'Barnett'",
-        usedSql,
-        "Fixed code must use a parameterized UPDATE statement");
+    assertTrue(
+        usedSql.contains("UPDATE employees SET department = ?"),
+        "Expected a parameterized UPDATE statement with a single placeholder for department");
+    assertTrue(
+        usedSql.contains("WHERE last_name='Barnett'") && usedSql.contains("first_name='Tobi'"),
+        "Expected employee filter to remain fixed and not derived from user input");
 
-    Mockito.verify(preparedStatement).setString(1, "Sales");
-    Mockito.verify(preparedStatement).executeUpdate();
+    Mockito.verify(updateStatement).setString(1, departmentValue);
+    Mockito.verify(updateStatement).executeUpdate();
 
     assertTrue(
-        result.getLessonCompleted(),
-        "Lesson should still be completable when using the allowed, parameterized UPDATE");
+        result.isLessonCompleted(),
+        "Lesson should be completed when departmentValue is set to 'Sales'");
+  }
+
+  @Test
+  void injectableQuery_sqlInjectionPayloadIsTreatedAsLiteralDepartment() throws Exception {
+    // Arrange
+    String payload = "Sales', department='Admin"; // typical attempt to break out of value context
+
+    Mockito.when(resultSet.first()).thenReturn(true);
+    // The department in DB should not change to arbitrary payload; we simulate it remaining non-Sales.
+    Mockito.when(resultSet.getString("department")).thenReturn("HR");
+
+    // Act
+    AttackResult result = lesson3.injectableQuery(payload);
+
+    // Assert: even with an injection-like payload, the query structure is not compromised
+    Mockito.verify(updateStatement).setString(1, payload);
+    assertFalse(
+        result.isLessonCompleted(),
+        "Injection-style payload should not cause unintended department changes or lesson completion");
   }
 }

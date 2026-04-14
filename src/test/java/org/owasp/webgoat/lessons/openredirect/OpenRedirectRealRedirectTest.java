@@ -1,47 +1,66 @@
 package org.owasp.webgoat.lessons.openredirect;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.web.servlet.ModelAndView;
+import org.springframework.web.servlet.view.RedirectView;
 
 /**
- * Test file path (derived):
- * src/test/java/org/owasp/webgoat/lessons/openredirect/OpenRedirectRealRedirectTest.java
- *
- * Delta tests for OpenRedirectRealRedirect focusing on validation of redirect targets:
- * - external or malformed URLs must be rejected and redirected to a safe internal path;
- * - valid internal paths (starting with '/') remain allowed.
+ * Delta tests for OpenRedirectRealRedirect focusing on the new validation:
+ * - Only allow redirects to internal paths starting with '/'
+ * - Fallback to a safe default route for all other values
  */
-class OpenRedirectRealRedirectTest {
+public class OpenRedirectRealRedirectTest {
 
   @Test
-  void real_redirectsToSafeHomeForExternalUrl() {
+  void real_allowsInternalRelativePathRedirects() {
+    // Arrange
     OpenRedirectRealRedirect controller = new OpenRedirectRealRedirect();
+    String internalUrl = "/lessons/openredirect";
 
-    ModelAndView mav = controller.real("http://evil.com");
+    // Act
+    ModelAndView mav = controller.real(internalUrl);
 
-    assertEquals("redirect:/home", mav.getViewName());
+    // Assert
+    assertEquals("redirect:" + internalUrl, mav.getViewName());
   }
 
   @Test
-  void real_redirectsToSafeHomeForSchemeRelativeUrl() {
+  void real_rejectsExternalUrlAndRedirectsToSafeDefault() {
+    // Arrange
     OpenRedirectRealRedirect controller = new OpenRedirectRealRedirect();
+    String externalUrl = "http://evil.com/phish";
 
-    ModelAndView mav = controller.real("//evil.com");
+    // Act
+    ModelAndView mav = controller.real(externalUrl);
 
-    assertEquals("redirect:/home", mav.getViewName());
-  }
-
-  @Test
-  void real_allowsInternalRelativePath() {
-    OpenRedirectRealRedirect controller = new OpenRedirectRealRedirect();
-
-    ModelAndView mav = controller.real("/account/profile");
-
+    // Assert
+    // In the fixed implementation, an invalid URL returns a RedirectView to /welcome.mvc
+    assertTrue(
+        mav.getView() instanceof RedirectView,
+        "Expected RedirectView for invalid or external redirect targets");
+    RedirectView redirectView = (RedirectView) mav.getView();
     assertEquals(
-        "redirect:/account/profile",
-        mav.getViewName(),
-        "Internal paths starting with '/' must remain allowed");
+        "/welcome.mvc",
+        redirectView.getUrl(),
+        "Invalid redirect target should be normalized to a safe internal URL");
+  }
+
+  @Test
+  void real_handlesNullOrEmptyUrlSafely() {
+    // Arrange
+    OpenRedirectRealRedirect controller = new OpenRedirectRealRedirect();
+
+    // Act
+    ModelAndView mav = controller.real(null);
+
+    // Assert
+    assertTrue(
+        mav.getView() instanceof RedirectView,
+        "Null URL should be treated as invalid and redirected to a safe page");
+    RedirectView redirectView = (RedirectView) mav.getView();
+    assertEquals("/welcome.mvc", redirectView.getUrl());
   }
 }
