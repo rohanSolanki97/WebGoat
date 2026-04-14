@@ -16,10 +16,9 @@ import org.springframework.security.config.annotation.authentication.configurati
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.core.userdetails.UserDetailsService;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder; // Changed from NoOpPasswordEncoder
-import org.springframework.security.crypto.password.PasswordEncoder; // Added for PasswordEncoder interface
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
-import org.springframework.security.web.csrf.CookieCsrfTokenRepository; // Added for CSRF token repository
 
 /** Security configuration for WebGoat. */
 @Configuration
@@ -60,8 +59,7 @@ public class WebSecurityConfig {
               oidc.loginPage("/login");
             })
         .logout(logout -> logout.deleteCookies("JSESSIONID").invalidateHttpSession(true))
-        // .csrf(csrf -> csrf.disable()) // Original vulnerable line: CSRF disabled
-        .csrf(csrf -> csrf.csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())) // Fixed: Enabled CSRF with CookieCsrfTokenRepository
+        .csrf(csrf -> {})
         .headers(headers -> headers.disable())
         .exceptionHandling(
             handling ->
@@ -71,7 +69,7 @@ public class WebSecurityConfig {
 
   @Autowired
   public void configureGlobal(AuthenticationManagerBuilder auth) throws Exception {
-    auth.userDetailsService(userDetailsService).passwordEncoder(passwordEncoder()); // Added passwordEncoder
+    auth.userDetailsService(userDetailsService).passwordEncoder(passwordEncoder());
   }
 
   @Bean
@@ -87,8 +85,7 @@ public class WebSecurityConfig {
   }
 
   @Bean
-  // public NoOpPasswordEncoder passwordEncoder() { // Original vulnerable line: NoOpPasswordEncoder
-  public PasswordEncoder passwordEncoder() { // Fixed: Using PasswordEncoder interface
-    return new BCryptPasswordEncoder(); // Fixed: Using BCryptPasswordEncoder
+  public PasswordEncoder passwordEncoder() {
+    return new BCryptPasswordEncoder();
   }
 }

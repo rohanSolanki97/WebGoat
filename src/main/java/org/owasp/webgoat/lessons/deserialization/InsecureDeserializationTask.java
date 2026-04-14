@@ -11,8 +11,9 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InvalidClassException;
 import java.io.ObjectInputStream;
-import java.io.ObjectInputFilter; // Added import for ObjectInputFilter
+import java.io.ObjectInputFilter;
 import java.util.Base64;
+import java.util.Set;
 import org.dummy.insecure.framework.VulnerableTaskHolder;
 import org.owasp.webgoat.container.assignments.AssignmentEndpoint;
 import org.owasp.webgoat.container.assignments.AssignmentHints;
@@ -30,6 +31,11 @@ import org.springframework.web.bind.annotation.RestController;
 })
 public class InsecureDeserializationTask implements AssignmentEndpoint {
 
+  private static final Set<String> ALLOWED_CLASSES = Set.of(
+      "org.dummy.insecure.framework.VulnerableTaskHolder",
+      "java.lang.String"
+  );
+
   @PostMapping("/InsecureDeserialization/task")
   @ResponseBody
   public AttackResult completed(@RequestParam String token) throws IOException {
@@ -42,10 +48,15 @@ public class InsecureDeserializationTask implements AssignmentEndpoint {
 
     try (ObjectInputStream ois =
         new ObjectInputStream(new ByteArrayInputStream(Base64.getDecoder().decode(b64token)))) {
-      // Fixed: Added deserialization filter to restrict allowed classes
       ois.setObjectInputFilter(ObjectInputFilter.Config.createFilter(
-          "org.dummy.insecure.framework.VulnerableTaskHolder;java.lang.String;!*"
-      ));
+          info -> {
+            if (info.serialClass() != null) {
+              return ALLOWED_CLASSES.contains(info.serialClass().getName())
+                  ? ObjectInputFilter.Status.ALLOWED
+                  : ObjectInputFilter.Status.REJECTED;
+            }
+            return ObjectInputFilter.Status.UNDECIDED;
+          }));
 
       before = System.currentTimeMillis();
       Object o = ois.readObject();
