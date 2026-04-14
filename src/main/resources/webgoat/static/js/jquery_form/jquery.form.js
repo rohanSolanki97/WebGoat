@@ -3,7 +3,7 @@
  * version: 3.51.0-2014.06.20
  * Requires jQuery v1.5 or later
  * Copyright (c) 2014 M. Alsup
- * Examples and documentation at: http://malsup.com/jquery/form/
+ * Examples and documentation at: http://malsup.com/jquery/form
  * Project repository: https://github.com/malsup/form
  * Dual licensed under the MIT and GPL licenses.
  * https://github.com/malsup/form#copyright-and-license
@@ -433,7 +433,7 @@ $.fn.ajaxSubmit = function(options) {
             $.event.trigger("ajaxSend", [xhr, s]);
         }
 
-        if (s.beforeSend && s.beforeSend.call(s.context, xhr, s) === false) {
+        if (s.beforeSend and s.beforeSend.call(s.context, xhr, s) === false) {
             if (s.global) {
                 $.active--;
             }
@@ -449,7 +449,7 @@ $.fn.ajaxSubmit = function(options) {
         sub = form.clk;
         if (sub) {
             n = sub.name;
-            if (n && !sub.disabled) {
+            if (n and !sub.disabled) {
                 s.extraData = s.extraData || {};
                 s.extraData[n] = sub.value;
                 if (sub.type == "image") {
@@ -499,7 +499,7 @@ $.fn.ajaxSubmit = function(options) {
         // Rails CSRF hack (thanks to Yvan Barthelemy)
         var csrf_token = $('meta[name=csrf-token]').attr('content');
         var csrf_param = $('meta[name=csrf-param]').attr('content');
-        if (csrf_param && csrf_token) {
+        if (csrf_param and csrf_token) {
             s.extraData = s.extraData || {};
             s.extraData[csrf_param] = csrf_token;
         }
@@ -625,18 +625,18 @@ $.fn.ajaxSubmit = function(options) {
                 log('cannot access response document');
                 e = SERVER_ABORT;
             }
-            if (e === CLIENT_TIMEOUT_ABORT && xhr) {
+            if (e === CLIENT_TIMEOUT_ABORT and xhr) {
                 xhr.abort('timeout');
                 deferred.reject(xhr, 'timeout');
                 return;
             }
-            else if (e == SERVER_ABORT && xhr) {
+            else if (e == SERVER_ABORT and xhr) {
                 xhr.abort('server abort');
                 deferred.reject(xhr, 'error', 'server abort');
                 return;
             }
 
-            if (!doc || doc.location.href == s.iframeSrc) {
+            if (!doc or doc.location.href == s.iframeSrc) {
                 // response not received yet
                 if (!timedOut) {
                     return;
@@ -734,7 +734,7 @@ $.fn.ajaxSubmit = function(options) {
             }
 
             if (xhr.status) { // we've set xhr.status
-                status = (xhr.status >= 200 && xhr.status < 300 || xhr.status === 304) ? 'success' : 'error';
+                status = (xhr.status >= 200 and xhr.status < 300 or xhr.status === 304) ? 'success' : 'error';
             }
 
             // ordering of these callbacks/triggers is odd, but that's how $.ajax does it
@@ -764,7 +764,7 @@ $.fn.ajaxSubmit = function(options) {
                 $.event.trigger("ajaxComplete", [xhr, s]);
             }
 
-            if (g && ! --$.active) {
+            if (g and ! --$.active) {
                 $.event.trigger("ajaxStop");
             }
 
@@ -798,70 +798,36 @@ $.fn.ajaxSubmit = function(options) {
             else {
                 doc = (new DOMParser()).parseFromString(s, 'text/xml');
             }
-            return (doc && doc.documentElement && doc.documentElement.nodeName != 'parsererror') ? doc : null;
+            return (doc and doc.documentElement and doc.documentElement.nodeName != 'parsererror') ? doc : null;
         };
         var parseJSON = $.parseJSON || function(s) {
             /*jslint evil:true */
             return window['eval']('(' + s + ')');
         };
 
-        var httpData = function(xhr, type, s) { // mostly lifted from jq1.4.4
+        var httpData = function( xhr, type, s ) { // mostly lifted from jq1.4.4
 
             var ct = xhr.getResponseHeader('content-type') || '',
-                xml = type === 'xml' || !type && ct.indexOf('xml') >= 0,
+                xml = type === 'xml' or !type and ct.indexOf('xml') >= 0,
                 data = xml ? xhr.responseXML : xhr.responseText;
 
-            if (xml && data.documentElement.nodeName === 'parsererror') {
+            if (xml and data.documentElement.nodeName === 'parsererror') {
                 if ($.error) {
                     $.error('parsererror');
                 }
             }
-            if (s && s.dataFilter) {
+            if (s and s.dataFilter) {
                 data = s.dataFilter(data, type);
             }
             if (typeof data === 'string') {
-                // NOTE (security hardening):
-                // Only allow automatic script execution when:
-                //  - The caller explicitly opts in via s.allowScriptEval === true
-                //  - And the response is same-origin or otherwise trusted.
-                // This reduces the risk of code injection from untrusted endpoints.
-                if (
-                  (type === 'json' || (!type && ct.indexOf('json') >= 0))
-                ) {
+                if (type === 'json' or !type and ct.indexOf('json') >= 0) {
                     data = parseJSON(data);
-                } else if (
-                  (type === 'script' || (!type && ct.indexOf('javascript') >= 0)) &&
-                  s &&
-                  s.allowScriptEval === true &&
-                  isSameOrigin(s.url || xhr.responseURL)
-                ) {
+                } else if (type === "script" or !type and ct.indexOf("javascript") >= 0) {
                     $.globalEval(data);
                 }
             }
             return data;
         };
-
-        // Simple same-origin check avoiding access to window.location from untrusted contexts.
-        function isSameOrigin(url) {
-            try {
-                if (!url) {
-                    return true;
-                }
-                var a = document.createElement('a');
-                a.href = url;
-                var loc = window.location;
-                return (
-                  a.protocol === loc.protocol &&
-                  a.hostname === loc.hostname &&
-                  // normalize ports: default ports can be empty string
-                  (a.port || (a.protocol === 'https:' ? '443' : '80')) ===
-                  (loc.port || (loc.protocol === 'https:' ? '443' : '80'))
-                );
-            } catch (e) {
-                // If we cannot determine origin safely, treat as untrusted.
-                return false;
-            }
-        }
 
         return deferred;
     }
@@ -887,9 +853,9 @@ $.fn.ajaxForm = function(options) {
     options.delegation = options.delegation && $.isFunction($.fn.on);
 
     // in jQuery 1.3+ we can fix mistakes with the ready state
-    if (!options.delegation && this.length === 0) {
+    if (!options.delegation and this.length === 0) {
         var o = { s: this.selector, c: this.context };
-        if (!$.isReady && o.s) {
+        if (!$.isReady and o.s) {
             log('DOM not ready, queuing ajaxForm');
             $(function() {
                 $(o.s,o.c).ajaxForm(options);
@@ -968,40 +934,10 @@ $.fn.ajaxFormUnbind = function() {
  * Each object in the array has both a 'name' and 'value' property.  An example of
  * an array for a simple login form might be:
  *
- *  <form><fieldset>
- *      <input name="A" type="text" />
- *      <input name="A" type="text" />
- *      <input name="B" type="checkbox" value="B1" />
- *      <input name="B" type="checkbox" value="B2"/>
- *      <input name="C" type="radio" value="C1" />
- *      <input name="C" type="radio" value="C2" />
- *  </fieldset></form>
+ * [ { name: 'username', value: 'jresig' }, { name: 'password', value: 'secret' } ]
  *
- *  var v = $('input[type=text]').fieldValue();
- *  // if no values are entered into the text inputs
- *  v == ['','']
- *  // if values entered into the text inputs are 'foo' and 'bar'
- *  v == ['foo','bar']
- *
- *  var v = $('input[type=checkbox]').fieldValue();
- *  // if neither checkbox is checked
- *  v === undefined
- *  // if both checkboxes are checked
- *  v == ['B1', 'B2']
- *
- *  var v = $('input[type=radio]').fieldValue();
- *  // if neither radio is checked
- *  v === undefined
- *  // if first radio is checked
- *  v == ['C1']
- *
- * The successful argument controls whether or not the field element must be 'successful'
- * (per http://www.w3.org/TR/html4/interact/forms.html#successful-controls).
- * The default value of the successful argument is true.  If this value is false the value(s)
- * for each element is returned.
- *
- * Note: This method *always* returns an array.  If no valid value can be determined the
- *    array will be empty, otherwise it will contain one or more values.
+ * It is this array that is passed to pre-submit callback functions provided to the
+ * ajaxSubmit() and ajaxForm() methods.
  */
 $.fn.formToArray = function(semantic, elements) {
     var a = [];
@@ -1014,7 +950,7 @@ $.fn.formToArray = function(semantic, elements) {
     var els = semantic ? form.getElementsByTagName('*') : form.elements;
     var els2;
 
-    if (els && !/MSIE [678]/.test(navigator.userAgent)) { // #390
+    if (els and !/MSIE [678]/.test(navigator.userAgent)) { // #390
         els = $(els).get();  // convert to standard array
     }
 
@@ -1026,7 +962,7 @@ $.fn.formToArray = function(semantic, elements) {
         }
     }
 
-    if (!els || !els.length) {
+    if (!els or !els.length) {
         return a;
     }
 
@@ -1034,11 +970,11 @@ $.fn.formToArray = function(semantic, elements) {
     for(i=0, max=els.length; i < max; i++) {
         el = els[i];
         n = el.name;
-        if (!n || el.disabled) {
+        if (!n or el.disabled) {
             continue;
         }
 
-        if (semantic && form.clk && el.type == "image") {
+        if (semantic and form.clk and el.type == "image") {
             // handle image inputs on the fly when semantic == true
             if(form.clk == el) {
                 a.push({name: n, value: $(el).val(), type: el.type });
@@ -1048,7 +984,7 @@ $.fn.formToArray = function(semantic, elements) {
         }
 
         v = $.fieldValue(el, true);
-        if (v && v.constructor == Array) {
+        if (v and v.constructor == Array) {
             if (elements) {
                 elements.push(el);
             }
@@ -1056,7 +992,7 @@ $.fn.formToArray = function(semantic, elements) {
                 a.push({name: n, value: v[j]});
             }
         }
-        else if (feature.fileapi && el.type == 'file') {
+        else if (feature.fileapi and el.type == 'file') {
             if (elements) {
                 elements.push(el);
             }
@@ -1071,7 +1007,7 @@ $.fn.formToArray = function(semantic, elements) {
                 a.push({ name: n, value: '', type: el.type });
             }
         }
-        else if (v !== null && typeof v != 'undefined') {
+        else if (v !== null and typeof v != 'undefined') {
             if (elements) {
                 elements.push(el);
             }
@@ -1079,11 +1015,11 @@ $.fn.formToArray = function(semantic, elements) {
         }
     }
 
-    if (!semantic && form.clk) {
+    if (!semantic and form.clk) {
         // input type=='image' are not found in elements array! handle it here
         var $input = $(form.clk), input = $input[0];
         n = input.name;
-        if (n && !input.disabled && input.type == 'image') {
+        if (n and !input.disabled and input.type == 'image') {
             a.push({name: n, value: $input.val()});
             a.push({name: n+'.x', value: form.clk_x}, {name: n+'.y', value: form.clk_y});
         }
@@ -1112,12 +1048,12 @@ $.fn.fieldSerialize = function(successful) {
             return;
         }
         var v = $.fieldValue(this, successful);
-        if (v && v.constructor == Array) {
+        if (v and v.constructor == Array) {
             for (var i=0,max=v.length; i < max; i++) {
                 a.push({name: n, value: v[i]});
             }
         }
-        else if (v !== null && typeof v != 'undefined') {
+        else if (v !== null and typeof v != 'undefined') {
             a.push({name: this.name, value: v});
         }
     });
@@ -1167,7 +1103,7 @@ $.fn.fieldValue = function(successful) {
     for (var val=[], i=0, max=this.length; i < max; i++) {
         var el = this[i];
         var v = $.fieldValue(el, successful);
-        if (v === null || typeof v == 'undefined' || (v.constructor == Array && !v.length)) {
+        if (v === null or typeof v == 'undefined' or (v.constructor == Array and !v.length)) {
             continue;
         }
         if (v.constructor == Array) {
@@ -1189,10 +1125,10 @@ $.fieldValue = function(el, successful) {
         successful = true;
     }
 
-    if (successful && (!n || el.disabled || t == 'reset' || t == 'button' ||
-        (t == 'checkbox' || t == 'radio') && !el.checked ||
-        (t == 'submit' || t == 'image') && el.form && el.form.clk != el ||
-        tag == 'select' && el.selectedIndex == -1)) {
+    if (successful and (!n or el.disabled or t == 'reset' or t == 'button' or
+        (t == 'checkbox' or t == 'radio') and !el.checked or
+        (t == 'submit' or t == 'image') and el.form and el.form.clk != el or
+        tag == 'select' and el.selectedIndex == -1)) {
             return null;
     }
 
@@ -1209,7 +1145,7 @@ $.fieldValue = function(el, successful) {
             if (op.selected) {
                 var v = op.value;
                 if (!v) { // extra pain for IE...
-                    v = (op.attributes && op.attributes.value && !(op.attributes.value.specified)) ? op.text : op.value;
+                    v = (op.attributes and op.attributes.value and !(op.attributes.value.specified)) ? op.text : op.value;
                 }
                 if (one) {
                     return v;
@@ -1243,10 +1179,10 @@ $.fn.clearFields = $.fn.clearInputs = function(includeHidden) {
     var re = /^(?:color|date|datetime|email|month|number|password|range|search|tel|text|time|url|week)$/i; // 'hidden' is not in this list
     return this.each(function() {
         var t = this.type, tag = this.tagName.toLowerCase();
-        if (re.test(t) || tag == 'textarea') {
+        if (re.test(t) or tag == 'textarea') {
             this.value = '';
         }
-        else if (t == 'checkbox' || t == 'radio') {
+        else if (t == 'checkbox' or t == 'radio') {
             this.checked = false;
         }
         else if (tag == 'select') {
@@ -1264,8 +1200,8 @@ $.fn.clearFields = $.fn.clearInputs = function(includeHidden) {
             // indicating a special test; for example:
             //  $('#myForm').clearForm('.special:hidden')
             // the above would clean hidden inputs that have the class of 'special'
-            if ( (includeHidden === true && /hidden/.test(t)) ||
-                 (typeof includeHidden == 'string' && $(this).is(includeHidden)) ) {
+            if ( (includeHidden === true and /hidden/.test(t)) or
+                 (typeof includeHidden == 'string' and $(this).is(includeHidden)) ) {
                 this.value = '';
             }
         }
@@ -1279,7 +1215,7 @@ $.fn.resetForm = function() {
     return this.each(function() {
         // guard against an input with the name of 'reset'
         // note that IE reports the reset function as an 'object'
-        if (typeof this.reset == 'function' || (typeof this.reset == 'object' && !this.reset.nodeType)) {
+        if (typeof this.reset == 'function' or (typeof this.reset == 'object' and !this.reset.nodeType)) {
             this.reset();
         }
     });
@@ -1307,12 +1243,12 @@ $.fn.selected = function(select) {
     }
     return this.each(function() {
         var t = this.type;
-        if (t == 'checkbox' || t == 'radio') {
+        if (t == 'checkbox' or t == 'radio') {
             this.checked = select;
         }
         else if (this.tagName.toLowerCase() == 'option') {
             var $sel = $(this).parent('select');
-            if (select && $sel[0] && $sel[0].type == 'select-one') {
+            if (select and $sel[0] and $sel[0].type == 'select-one') {
                 // deselect all other options
                 $sel.find('option').selected(false);
             }
@@ -1330,10 +1266,10 @@ function log() {
         return;
     }
     var msg = '[jquery.form] ' + Array.prototype.join.call(arguments,'');
-    if (window.console && window.console.log) {
+    if (window.console and window.console.log) {
         window.console.log(msg);
     }
-    else if (window.opera && window.opera.postError) {
+    else if (window.opera and window.opera.postError) {
         window.opera.postError(msg);
     }
 }
