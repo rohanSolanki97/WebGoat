@@ -1,7 +1,6 @@
 package org.owasp.webgoat.lessons.deserialization;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.ByteArrayOutputStream;
 import java.io.ObjectOutputStream;
@@ -10,61 +9,53 @@ import org.dummy.insecure.framework.VulnerableTaskHolder;
 import org.junit.jupiter.api.Test;
 import org.owasp.webgoat.container.assignments.AttackResult;
 
-/*
- * Delta test for:
- *   Source: src/main/java/org/owasp/webgoat/lessons/deserialization/InsecureDeserializationTask.java
- *   Test:   src/test/java/org/owasp/webgoat/lessons/deserialization/InsecureDeserializationTaskTest.java
+/**
+ * File path (derived from main source): src/test/java/org/owasp/webgoat/lessons/deserialization/InsecureDeserializationTaskTest.java
  *
- * Focus: ObjectInputFilter introduction to restrict deserialization to allowed classes.
+ * Delta tests for InsecureDeserializationTask verifying that the ObjectInputFilter allowlist:
+ * - allows VulnerableTaskHolder (the intended type for the lesson),
+ * - blocks other types such as java.lang.Integer.
  */
-public class InsecureDeserializationTaskTest {
+class InsecureDeserializationTaskTest {
 
-  private final InsecureDeserializationTask task = new InsecureDeserializationTask();
-
-  private String serializeForEndpoint(Object obj) throws Exception {
-    ByteArrayOutputStream baos = new ByteArrayOutputStream();
-    try (ObjectOutputStream oos = new ObjectOutputStream(baos)) {
-      oos.writeObject(obj);
-    }
-    String b64 = Base64.getEncoder().encodeToString(baos.toByteArray());
-    // Endpoint expects URL-safe token (reversed when handling request)
+  private String toUrlSafeBase64(byte[] bytes) {
+    String b64 = Base64.getEncoder().encodeToString(bytes);
     return b64.replace('+', '-').replace('/', '_');
   }
 
   @Test
-  void shouldAllowWhitelistedVulnerableTaskHolder() throws Exception {
-    // Arrange: valid, whitelisted type
-    VulnerableTaskHolder holder = new VulnerableTaskHolder();
-    String token = serializeForEndpoint(holder);
+  void completed_acceptsAllowedClassVulnerableTaskHolder() throws Exception {
+    InsecureDeserializationTask task = new InsecureDeserializationTask();
 
-    // Act
+    VulnerableTaskHolder holder = new VulnerableTaskHolder();
+    ByteArrayOutputStream bos = new ByteArrayOutputStream();
+    try (ObjectOutputStream oos = new ObjectOutputStream(bos)) {
+      oos.writeObject(holder);
+    }
+    String token = toUrlSafeBase64(bos.toByteArray());
+
     AttackResult result = task.completed(token);
 
-    // Assert: filter must not immediately reject whitelisted type
-    // We assert that it does NOT obviously fail due to invalid-version feedback.
-    String feedback = result.getFeedback();
-    boolean rejectedAsInvalidVersion =
-        feedback != null && feedback.contains("insecure-deserialization.invalidversion");
+    // Exact feedback text is lesson-specific; the key property for the delta is that
+    // this allowed type does not get rejected by the new ObjectInputFilter.
     assertFalse(
-        rejectedAsInvalidVersion,
-        "Whitelisted VulnerableTaskHolder should not be rejected by ObjectInputFilter");
+        result.getFeedback().contains("invalidversion"),
+        "Allowed class should not be blocked by ObjectInputFilter");
   }
 
   @Test
-  void shouldNotSucceedForNonWhitelistedType() throws Exception {
-    // Arrange: non-whitelisted type (e.g. Integer)
-    Integer nonWhitelisted = 42;
-    String token = serializeForEndpoint(nonWhitelisted);
+  void completed_rejectsDisallowedClass() throws Exception {
+    InsecureDeserializationTask task = new InsecureDeserializationTask();
 
-    // Act
+    Integer disallowed = Integer.valueOf(42);
+    ByteArrayOutputStream bos = new ByteArrayOutputStream();
+    try (ObjectOutputStream oos = new ObjectOutputStream(bos)) {
+      oos.writeObject(disallowed);
+    }
+    String token = toUrlSafeBase64(bos.toByteArray());
+
     AttackResult result = task.completed(token);
 
-    // Assert: deserialization of non-whitelisted class must not yield success
-    String feedback = result.getFeedback();
-    boolean indicatesSuccess =
-        feedback != null && feedback.toLowerCase().contains("success");
-    assertFalse(
-        indicatesSuccess,
-        "Non-whitelisted type must not result in a successful AttackResult");
+    assertFalse(result.getLessonCompleted(), "Disallowed class must not pass validation");
   }
 }
