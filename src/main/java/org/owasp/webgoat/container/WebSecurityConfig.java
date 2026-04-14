@@ -1,45 +1,92 @@
 /*
- * SPDX-FileCopyrightText: Copyright © 2019 WebGoat authors
+ * SPDX-FileCopyrightText: Copyright © 2016 WebGoat authors
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 package org.owasp.webgoat.container;
 
+import lombok.AllArgsConstructor;
+import org.owasp.webgoat.container.users.UserService;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.config.annotation.authentication.builders.AuthenticationManagerBuilder;
+import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder; // Changed from NoOpPasswordEncoder
-import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder; // Added import for BCryptPasswordEncoder
+import org.springframework.security.crypto.password.PasswordEncoder; // Added import for PasswordEncoder
 import org.springframework.security.web.SecurityFilterChain;
-import org.springframework.security.web.csrf.CookieCsrfTokenRepository; // Added import for CookieCsrfTokenRepository
 
+/** Security configuration for WebGoat. */
 @Configuration
+@AllArgsConstructor
 @EnableWebSecurity
 public class WebSecurityConfig {
 
+  private final UserService userDetailsService;
+
   @Bean
   public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
-    http.authorizeHttpRequests()
-        .requestMatchers("/login", "/logout", "/register")
-        .permitAll()
-        .requestMatchers("/**")
-        .authenticated()
-        .and()
-        .formLogin()
-        .loginPage("/login")
-        .defaultSuccessUrl("/welcome")
-        .and()
-        .logout()
-        .logoutUrl("/logout")
-        .logoutSuccessUrl("/login")
-        .and()
-        // Enabled CSRF protection and configured CookieCsrfTokenRepository
-        .csrf(csrf -> csrf.csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())); // Fixed CSRF disabled
-    return http.build();
+    return http.authorizeHttpRequests(
+            auth ->
+                auth.requestMatchers(
+                        "/favicon.ico",
+                        "/css/**",
+                        "/images/**",
+                        "/js/**",
+                        "/fonts/**",
+                        "/plugins/**",
+                        "/registration",
+                        "/register.mvc",
+                        "/actuator/**")
+                    .permitAll()
+                    .anyRequest()
+                    .authenticated())
+        .formLogin(
+            login ->
+                login
+                    .loginPage("/login")
+                    .defaultSuccessUrl("/welcome.mvc", true)
+                    .usernameParameter("username")
+                    .passwordParameter("password")
+                    .permitAll())
+        .oauth2Login(
+            oidc -> {
+              oidc.defaultSuccessUrl("/login-oauth.mvc");
+              oidc.loginPage("/login");
+            })
+        .logout(logout -> logout.deleteCookies("JSESSIONID").invalidateHttpSession(true))
+        // Remediation: Removed csrf.disable() to enable Spring Security's default CSRF protection
+        // .csrf(csrf -> csrf.disable())
+        .headers(headers -> headers.disable())
+        .exceptionHandling(
+            handling ->
+                handling.authenticationEntryPoint(new AjaxAuthenticationEntryPoint("/login")))
+        .build();
+  }
+
+  @Autowired
+  public void configureGlobal(AuthenticationManagerBuilder auth) throws Exception {
+    auth.userDetailsService(userDetailsService);
   }
 
   @Bean
-  public PasswordEncoder passwordEncoder() {
-    return new BCryptPasswordEncoder(); // Changed from NoOpPasswordEncoder.getInstance()
+  @Primary
+  public UserDetailsService userDetailsServiceBean() {
+    return userDetailsService;
+  }
+
+  @Bean
+  public AuthenticationManager authenticationManager(
+      AuthenticationConfiguration authenticationConfiguration) throws Exception {
+    return authenticationConfiguration.getAuthenticationManager();
+  }
+
+  @Bean
+  public PasswordEncoder passwordEncoder() { // Remediation: Changed to return BCryptPasswordEncoder
+    return new BCryptPasswordEncoder();
   }
 }

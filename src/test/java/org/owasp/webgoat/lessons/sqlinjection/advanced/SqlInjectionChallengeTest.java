@@ -1,67 +1,103 @@
 package org.owasp.webgoat.lessons.sqlinjection.advanced;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 import org.owasp.webgoat.container.LessonDataSource;
 import org.owasp.webgoat.container.assignments.AttackResult;
 
-/**
- * Delta tests for SqlInjectionChallenge focusing on the SQL injection fix:
- * - Ensures a parameterized query with placeholder is used.
- * - Ensures user input is bound via setString.
+/*
+ * Delta test for:
+ *   Source: src/main/java/org/owasp/webgoat/lessons/sqlinjection/advanced/SqlInjectionChallenge.java
+ *   Test:   src/test/java/org/owasp/webgoat/lessons/sqlinjection/advanced/SqlInjectionChallengeTest.java
+ *
+ * Focus: change from concatenated SQL with Statement to parameterized PreparedStatement
+ * for checkUserQuery.
  */
 public class SqlInjectionChallengeTest {
 
-  @Test
-  void usesParameterizedQueryAndBindsInputName() throws Exception {
-    // Arrange
-    LessonDataSource dataSource = Mockito.mock(LessonDataSource.class);
-    SqlInjectionChallenge challenge = new SqlInjectionChallenge(dataSource);
+  private LessonDataSource dataSource;
+  private SqlInjectionChallenge challenge;
+  private Connection connection;
+  private PreparedStatement checkUserStatement;
+  private PreparedStatement insertStatement;
+  private ResultSet resultSet;
 
-    Connection connection = Mockito.mock(Connection.class);
-    PreparedStatement statement = Mockito.mock(PreparedStatement.class);
-    ResultSet resultSet = Mockito.mock(ResultSet.class);
+  @BeforeEach
+  void setup() throws Exception {
+    dataSource = Mockito.mock(LessonDataSource.class);
+    challenge = new SqlInjectionChallenge(dataSource);
 
-    when(dataSource.getConnection()).thenReturn(connection);
-    when(connection.prepareStatement(Mockito.anyString())).thenReturn(statement);
-    when(statement.executeQuery()).thenReturn(resultSet);
-    when(resultSet.next()).thenReturn(true);
+    connection = Mockito.mock(Connection.class);
+    checkUserStatement = Mockito.mock(PreparedStatement.class);
+    insertStatement = Mockito.mock(PreparedStatement.class);
+    resultSet = Mockito.mock(ResultSet.class);
 
-    String name = "John";
+    Mockito.when(dataSource.getConnection()).thenReturn(connection);
 
-    // Act
-    AttackResult result = challenge.completed(name);
+    Mockito.when(
+            connection.prepareStatement(
+                "select userid from sql_challenge_users where userid = ?"))
+        .thenReturn(checkUserStatement);
+    Mockito.when(connection.prepareStatement("INSERT INTO sql_challenge_users VALUES (?, ?, ?)"))
+        .thenReturn(insertStatement);
 
-    // Assert
-    ArgumentCaptor<String> sqlCaptor = ArgumentCaptor.forClass(String.class);
-    verify(connection).prepareStatement(sqlCaptor.capture());
-    String sql = sqlCaptor.getValue();
-    assertEquals(
-        "SELECT * FROM employees WHERE first_name = ?",
-        sql,
-        "SQL should use parameterized query with placeholder");
-
-    verify(statement).setString(1, name);
-
-    org.junit.jupiter.api.Assertions.assertNotNull(result);
+    Mockito.when(checkUserStatement.executeQuery()).thenReturn(resultSet);
   }
 
   @Test
-  void rejectsEmptyNameInput() {
-    LessonDataSource dataSource = Mockito.mock(LessonDataSource.class);
-    SqlInjectionChallenge challenge = new SqlInjectionChallenge(dataSource);
+  void registerNewUserShouldUseParameterizedCheckUserQuery() {
+    // Arrange
+    String username = "newuser";
+    String email = "user@example.com";
+    String password = "pwd";
+    Mockito.when(resultSet.next()).thenReturn(false);
 
-    AttackResult result = challenge.completed("  ");
+    // Act
+    AttackResult result = challenge.registerNewUser(username, email, password);
 
-    assertFalse(result.getLessonCompleted(), "Empty name input should not complete the lesson");
+    // Assert: parameterized SQL and bound parameter
+    ArgumentCaptor<String> sqlCaptor = ArgumentCaptor.forClass(String.class);
+    verify(connection).prepareStatement(sqlCaptor.capture());
+    String usedSql = sqlCaptor.getValue();
+
+    assertEquals(
+        "select userid from sql_challenge_users where userid = ?",
+        usedSql,
+        "User existence check must use parameter marker");
+
+    verify(checkUserStatement).setString(1, username);
+  }
+
+  @Test
+  void registerNewUserShouldTreatMaliciousUsernameAsData() {
+    // Arrange
+    String maliciousUsername = "victim' OR '1'='1";
+    String email = "user@example.com";
+    String password = "pwd";
+    Mockito.when(resultSet.next()).thenReturn(false);
+
+    // Act
+    AttackResult result = challenge.registerNewUser(maliciousUsername, email, password);
+
+    // Assert: same parameterized query; malicious input bound as value
+    ArgumentCaptor<String> sqlCaptor = ArgumentCaptor.forClass(String.class);
+    verify(connection).prepareStatement(sqlCaptor.capture());
+    String usedSql = sqlCaptor.getValue();
+
+    assertEquals(
+        "select userid from sql_challenge_users where userid = ?",
+        usedSql,
+        "checkUserQuery must remain parameterized under malicious input");
+
+    verify(checkUserStatement).setString(1, maliciousUsername);
   }
 }

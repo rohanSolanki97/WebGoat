@@ -42,34 +42,34 @@ public class InsecureDeserializationTask implements AssignmentEndpoint {
 
     try (ObjectInputStream ois =
         new ObjectInputStream(new ByteArrayInputStream(Base64.getDecoder().decode(b64token)))) {
-      // Apply a serialization filter to restrict allowed classes (JEP 290)
-      ois.setObjectInputFilter(ObjectInputFilter.Config.createFilter(
-          "org.dummy.insecure.framework.VulnerableTaskHolder;java.lang.String;!*")); // Fixed insecure deserialization
+      // Remediation: Apply a serialization filter to restrict allowed classes (JEP 290)
+      ois.setObjectInputFilter(
+          ObjectInputFilter.Config.createFilter(
+              "org.dummy.insecure.framework.VulnerableTaskHolder;java.lang.String;!*"));
       before = System.currentTimeMillis();
       Object o = ois.readObject();
       if (!(o instanceof VulnerableTaskHolder)) {
         if (o instanceof String) {
-          return failed(this)
-              .feedback("insecure-deserialization.string")
-              .feedbackArgs(o)
-              .build();
+          return failed(this).feedback("insecure-deserialization.stringobject").build();
         }
-        return failed(this).feedback("insecure-deserialization.wrong.class").build();
+        return failed(this).feedback("insecure-deserialization.wrongobject").build();
       }
-      // ... (rest of the method remains unchanged)
-      VulnerableTaskHolder holder = (VulnerableTaskHolder) o;
-      delay = holder.getDelay();
       after = System.currentTimeMillis();
-
-      if (after - before > delay) {
-        return success(this).feedback("insecure-deserialization.success").build();
-      } else {
-        return failed(this).feedback("insecure-deserialization.failed").build();
-      }
     } catch (InvalidClassException e) {
-      return failed(this).feedback("insecure-deserialization.invalid.class").build();
-    } catch (ClassNotFoundException e) {
-      return failed(this).feedback("insecure-deserialization.class.not.found").build();
+      return failed(this).feedback("insecure-deserialization.invalidversion").build();
+    } catch (IllegalArgumentException e) {
+      return failed(this).feedback("insecure-deserialization.expired").build();
+    } catch (Exception e) {
+      return failed(this).feedback("insecure-deserialization.invalidversion").build();
     }
+
+    delay = (int) (after - before);
+    if (delay > 7000) {
+      return failed(this).build();
+    }
+    if (delay < 3000) {
+      return failed(this).build();
+    }
+    return success(this).build();
   }
 }
