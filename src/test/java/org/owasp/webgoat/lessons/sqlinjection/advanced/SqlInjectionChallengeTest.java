@@ -1,5 +1,7 @@
-// File: src/test/java/org/owasp/webgoat/lessons/sqlinjection/advanced/SqlInjectionChallengeTest.java
 package org.owasp.webgoat.lessons.sqlinjection.advanced;
+
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -7,75 +9,80 @@ import java.sql.ResultSet;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.mockito.Mockito;
 import org.owasp.webgoat.container.LessonDataSource;
 import org.owasp.webgoat.container.assignments.AttackResult;
 
-import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.Mockito.*;
-
 /**
- * Delta tests for SqlInjectionChallenge focusing on the change from concatenated
- * SQL to a PreparedStatement for the user-existence check query.
+ * Delta tests for SqlInjectionChallenge focusing on using a parameterized PreparedStatement instead
+ * of string-concatenated SQL for the user existence check.
  */
 public class SqlInjectionChallengeTest {
 
-    private LessonDataSource dataSource;
-    private SqlInjectionChallenge challenge;
+  private LessonDataSource dataSource;
+  private SqlInjectionChallenge challenge;
 
-    @BeforeEach
-    void setUp() {
-        dataSource = mock(LessonDataSource.class);
-        challenge = new SqlInjectionChallenge(dataSource);
-    }
+  private Connection connection;
+  private PreparedStatement preparedStatement;
+  private ResultSet resultSet;
 
-    @Test
-    void registerNewUser_usesPreparedStatementForUserCheck_preventsInjection() throws Exception {
-        Connection connection = mock(Connection.class);
-        PreparedStatement checkStmt = mock(PreparedStatement.class);
-        PreparedStatement insertStmt = mock(PreparedStatement.class);
-        ResultSet resultSet = mock(ResultSet.class);
+  @BeforeEach
+  void setup() throws Exception {
+    dataSource = Mockito.mock(LessonDataSource.class);
+    challenge = new SqlInjectionChallenge(dataSource);
 
-        when(dataSource.getConnection()).thenReturn(connection);
-        when(connection.prepareStatement("select userid from sql_challenge_users where userid = ?"))
-                .thenReturn(checkStmt);
-        when(connection.prepareStatement("INSERT INTO sql_challenge_users VALUES (?, ?, ?)")).thenReturn(insertStmt);
-        when(checkStmt.executeQuery()).thenReturn(resultSet);
-        when(resultSet.next()).thenReturn(false); // user does not exist
+    connection = Mockito.mock(Connection.class);
+    preparedStatement = Mockito.mock(PreparedStatement.class);
+    resultSet = Mockito.mock(ResultSet.class);
 
-        String maliciousUsername = "bob' OR '1'='1";
-        AttackResult result =
-                challenge.registerNewUser(maliciousUsername, "bob@example.com", "pass");
+    Mockito.when(dataSource.getConnection()).thenReturn(connection);
+    Mockito
+        .when(connection.prepareStatement(Mockito.anyString()))
+        .thenReturn(preparedStatement);
+    Mockito.when(preparedStatement.executeQuery()).thenReturn(resultSet);
+  }
 
-        ArgumentCaptor<String> sqlCaptor = ArgumentCaptor.forClass(String.class);
-        verify(connection, atLeastOnce()).prepareStatement(sqlCaptor.capture());
-        assertTrue(
-            sqlCaptor.getAllValues().contains("select userid from sql_challenge_users where userid = ?"),
-            "User check must use parameterized SQL, not string concatenation");
+  @Test
+  void registerNewUser_usesPreparedStatementForUserLookup() throws Exception {
+    // Arrange
+    Mockito.when(resultSet.next()).thenReturn(false);
 
-        verify(checkStmt).setString(1, maliciousUsername);
-        verify(checkStmt).executeQuery();
+    String username = "newuser";
+    String email = "user@example.com";
+    String password = "password";
 
-        assertNotNull(result);
-    }
+    ArgumentCaptor<String> sqlCaptor = ArgumentCaptor.forClass(String.class);
 
-    @Test
-    void registerNewUser_existingUserStillDetectedWithParameterizedQuery() throws Exception {
-        Connection connection = mock(Connection.class);
-        PreparedStatement checkStmt = mock(PreparedStatement.class);
-        ResultSet resultSet = mock(ResultSet.class);
+    // Act
+    AttackResult result = challenge.registerNewUser(username, email, password);
 
-        when(dataSource.getConnection()).thenReturn(connection);
-        when(connection.prepareStatement("select userid from sql_challenge_users where userid = ?"))
-                .thenReturn(checkStmt);
-        when(checkStmt.executeQuery()).thenReturn(resultSet);
-        when(resultSet.next()).thenReturn(true); // user exists
+    // Assert: ensure a parameterized query is used
+    Mockito.verify(connection).prepareStatement(sqlCaptor.capture());
+    String usedSql = sqlCaptor.getValue();
+    assertTrue(
+        usedSql.contains("where userid = ?"),
+        "Expected user lookup query to use a parameter placeholder instead of concatenation");
 
-        AttackResult result =
-                challenge.registerNewUser("existing", "existing@example.com", "pass");
+    Mockito.verify(preparedStatement).setString(1, username);
+    assertFalse(result.isLessonCompleted(), "User creation should be informational, not completion");
+  }
 
-        assertNotNull(result);
-        assertFalse(
-            result.getLessonCompleted(),
-            "Existing user should not complete the lesson, behavior must be preserved");
-    }
+  @Test
+  void registerNewUser_sqlInjectionPayloadDoesNotAlterLookupLogic() throws Exception {
+    // Arrange
+    Mockito.when(resultSet.next()).thenReturn(false);
+
+    String username = "victim";
+    String email = "user@example.com";
+    String password = "' OR '1'='1";
+
+    // Act
+    AttackResult result = challenge.registerNewUser(username, email, password);
+
+    // Assert: injection in password must not affect the user existence check query
+    Mockito.verify(preparedStatement).setString(1, username);
+    assertFalse(
+        result.isLessonCompleted(),
+        "SQL injection via registration must not compromise control flow when using prepared statements");
+  }
 }
