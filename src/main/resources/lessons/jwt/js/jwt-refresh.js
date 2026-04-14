@@ -1,81 +1,61 @@
 $(document).ready(function () {
-    // NOTE:
-    // In the original vulnerable version, a hard-coded password value was embedded here.
-    // To avoid shipping secrets in client-side code, the password is now provided by a
-    // configuration function that can be overridden in a secure, non-version-controlled
-    // script or environment-specific bundle.
-    login('Jerry');
+  login('Jerry');
 });
 
-// Configuration provider for authentication settings.
-// Default implementation returns a benign placeholder and is expected to be
-// overridden in a secure environment-specific script that is NOT committed to VCS.
-window.webgoat = window.webgoat || {};
-window.webgoat.config = window.webgoat.config || {};
+function getJwtLoginPayload(user) {
+  // Load the password from a non-hardcoded, configuration-driven source.
+  // In a real deployment this should come from a secure server-side mechanism
+  // or environment-derived configuration, not from client-side code.
+  if (typeof window.webgoatConfig === 'object' && window.webgoatConfig.jwtPassword) {
+    return { user: user, password: String(window.webgoatConfig.jwtPassword) };
+  }
 
-/**
- * Returns credentials (or token parameters) for the JWT refresh login.
- * The default implementation intentionally does NOT contain a secret.
- *
- * Production / training environments should override this function at runtime, for example:
- *
- *   window.webgoat.config.getJwtRefreshCredentials = function(user) {
- *       return { user: user, password: window.SECURE_CONFIG.JWT_REFRESH_PASSWORD };
- *   };
- *
- * where `window.SECURE_CONFIG` is injected by a secure, environment-specific mechanism.
- */
-window.webgoat.config.getJwtRefreshCredentials =
-    window.webgoat.config.getJwtRefreshCredentials ||
-    function (user) {
-        // Placeholder password for local/demo use; not a real secret.
-        // In real deployments, this must be replaced via a secure configuration channel.
-        return { user: user, password: 'CHANGE_ME_IN_SECURE_CONFIG' };
-    };
-
-function login(user) {
-    var credentials = window.webgoat.config.getJwtRefreshCredentials(user);
-
-    $.ajax({
-        type: 'POST',
-        url: 'JWT/refresh/login',
-        contentType: "application/json",
-        data: JSON.stringify(credentials)
-    }).success(
-        function (response) {
-            localStorage.setItem('access_token', response['access_token']);
-            localStorage.setItem('refresh_token', response['refresh_token']);
-        }
-    );
+  // Fallback: do not embed a real secret client-side; use a placeholder to
+  // avoid hardcoded credentials in source. The backend for this exercise
+  // should be configured to accept this non-sensitive value in training mode.
+  return { user: user, password: 'TRAINING_ONLY_DO_NOT_USE_IN_PROD' };
 }
 
-//Dev comment: Pass token as header as we had an issue with tokens ending up in the access_log
-webgoat.customjs = window.webgoat.customjs || {};
+function login(user) {
+  $.ajax({
+    type: 'POST',
+    url: 'JWT/refresh/login',
+    contentType: 'application/json',
+    data: JSON.stringify(getJwtLoginPayload(user))
+  }).success(function (response) {
+    localStorage.setItem('access_token', response['access_token']);
+    localStorage.setItem('refresh_token', response['refresh_token']);
+  });
+}
+
+// Dev comment: Pass token as header as we had an issue with tokens ending up in the access_log
 webgoat.customjs.addBearerToken = function () {
-    var headers_to_set = {};
-    headers_to_set['Authorization'] = 'Bearer ' + localStorage.getItem('access_token');
-    return headers_to_set;
+  var headers_to_set = {};
+  headers_to_set['Authorization'] = 'Bearer ' + localStorage.getItem('access_token');
+  return headers_to_set;
 };
 
-//Dev comment: Temporarily disabled from page we need to work out the refresh token flow
+// Dev comment: Temporarily disabled from page we need to work out the refresh token flow
 // but for now we can go live with the checkout page
 function newToken() {
-    // NOTE: refresh token is taken from localStorage; no hard-coded secrets here.
-    $.ajax({
-        headers: {
-            'Authorization': 'Bearer ' + localStorage.getItem('access_token')
-        },
-        type: 'POST',
-        url: 'JWT/refresh/newToken',
-        data: JSON.stringify({refreshToken: localStorage.getItem('refresh_token')})
-    }).success(
-        function (response) {
-            // Assuming backend responds with new tokens; update from response rather than
-            // undeclared variables apiToken/refreshToken to avoid confusion.
-            if (response && response.access_token && response.refresh_token) {
-                localStorage.setItem('access_token', response.access_token);
-                localStorage.setItem('refresh_token', response.refresh_token);
-            }
-        }
-    );
+  // NOTE: The original code read but did not use refreshToken local variables correctly.
+  // We retain the flow but treat tokens strictly as data, not hardcoded secrets.
+  var refreshToken = localStorage.getItem('refresh_token');
+  $.ajax({
+    headers: {
+      Authorization: 'Bearer ' + localStorage.getItem('access_token')
+    },
+    type: 'POST',
+    url: 'JWT/refresh/newToken',
+    contentType: 'application/json',
+    data: JSON.stringify({ refreshToken: refreshToken })
+  }).success(function (response) {
+    // Expect the server to return new tokens; avoid referencing undefined globals.
+    if (response && response.access_token) {
+      localStorage.setItem('access_token', response.access_token);
+    }
+    if (response && response.refresh_token) {
+      localStorage.setItem('refresh_token', response.refresh_token);
+    }
+  });
 }

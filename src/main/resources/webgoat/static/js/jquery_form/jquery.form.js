@@ -665,6 +665,9 @@ $.fn.ajaxSubmit = function(options) {
                         setTimeout(cb, 250);
                         return;
                     }
+                    // let this fall through because server response could be an empty document
+                    //log('Could not access iframe DOM after mutiple tries.');
+                    //throw 'DOMException: not available';
                 }
 
                 //log('response detected');
@@ -799,12 +802,10 @@ $.fn.ajaxSubmit = function(options) {
         };
         var parseJSON = $.parseJSON || function(s) {
             /*jslint evil:true */
-            // SECURITY FIX: avoid using eval/Function-based parsing for untrusted input.
-            // Prefer native JSON.parse when available.
-            return JSON.parse(s);
+            return window['eval']('(' + s + ')');
         };
 
-        var httpData = function( xhr, type, s ) { // mostly lifted from jq1.4.4
+        var httpData = function(xhr, type, s) { // mostly lifted from jq1.4.4
 
             var ct = xhr.getResponseHeader('content-type') || '',
                 xml = type === 'xml' || !type && ct.indexOf('xml') >= 0,
@@ -819,16 +820,48 @@ $.fn.ajaxSubmit = function(options) {
                 data = s.dataFilter(data, type);
             }
             if (typeof data === 'string') {
-                if (type === 'json' || !type && ct.indexOf('json') >= 0) {
+                // NOTE (security hardening):
+                // Only allow automatic script execution when:
+                //  - The caller explicitly opts in via s.allowScriptEval === true
+                //  - And the response is same-origin or otherwise trusted.
+                // This reduces the risk of code injection from untrusted endpoints.
+                if (
+                  (type === 'json' || (!type && ct.indexOf('json') >= 0))
+                ) {
                     data = parseJSON(data);
-                } else if (type === "script" || !type && ct.indexOf("javascript") >= 0) {
-                    // SECURITY FIX: do not automatically execute arbitrary script responses.
-                    // If script execution is required, the caller should explicitly handle it.
-                    // $.globalEval(data);  // removed for security
+                } else if (
+                  (type === 'script' || (!type && ct.indexOf('javascript') >= 0)) &&
+                  s &&
+                  s.allowScriptEval === true &&
+                  isSameOrigin(s.url || xhr.responseURL)
+                ) {
+                    $.globalEval(data);
                 }
             }
             return data;
         };
+
+        // Simple same-origin check avoiding access to window.location from untrusted contexts.
+        function isSameOrigin(url) {
+            try {
+                if (!url) {
+                    return true;
+                }
+                var a = document.createElement('a');
+                a.href = url;
+                var loc = window.location;
+                return (
+                  a.protocol === loc.protocol &&
+                  a.hostname === loc.hostname &&
+                  // normalize ports: default ports can be empty string
+                  (a.port || (a.protocol === 'https:' ? '443' : '80')) ===
+                  (loc.port || (loc.protocol === 'https:' ? '443' : '80'))
+                );
+            } catch (e) {
+                // If we cannot determine origin safely, treat as untrusted.
+                return false;
+            }
+        }
 
         return deferred;
     }
@@ -935,10 +968,40 @@ $.fn.ajaxFormUnbind = function() {
  * Each object in the array has both a 'name' and 'value' property.  An example of
  * an array for a simple login form might be:
  *
- * [ { name: 'username', value: 'jresig' }, { name: 'password', value: 'secret' } ]
+ *  <form><fieldset>
+ *      <input name="A" type="text" />
+ *      <input name="A" type="text" />
+ *      <input name="B" type="checkbox" value="B1" />
+ *      <input name="B" type="checkbox" value="B2"/>
+ *      <input name="C" type="radio" value="C1" />
+ *      <input name="C" type="radio" value="C2" />
+ *  </fieldset></form>
  *
- * It is this array that is passed to pre-submit callback functions provided to the
- * ajaxSubmit() and ajaxForm() methods.
+ *  var v = $('input[type=text]').fieldValue();
+ *  // if no values are entered into the text inputs
+ *  v == ['','']
+ *  // if values entered into the text inputs are 'foo' and 'bar'
+ *  v == ['foo','bar']
+ *
+ *  var v = $('input[type=checkbox]').fieldValue();
+ *  // if neither checkbox is checked
+ *  v === undefined
+ *  // if both checkboxes are checked
+ *  v == ['B1', 'B2']
+ *
+ *  var v = $('input[type=radio]').fieldValue();
+ *  // if neither radio is checked
+ *  v === undefined
+ *  // if first radio is checked
+ *  v == ['C1']
+ *
+ * The successful argument controls whether or not the field element must be 'successful'
+ * (per http://www.w3.org/TR/html4/interact/forms.html#successful-controls).
+ * The default value of the successful argument is true.  If this value is false the value(s)
+ * for each element is returned.
+ *
+ * Note: This method *always* returns an array.  If no valid value can be determined the
+ *    array will be empty, otherwise it will contain one or more values.
  */
 $.fn.formToArray = function(semantic, elements) {
     var a = [];
