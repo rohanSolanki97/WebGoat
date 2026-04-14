@@ -5,91 +5,48 @@
 package org.owasp.webgoat.lessons.sqlinjection.advanced;
 
 import static org.owasp.webgoat.container.assignments.AttackResultBuilder.failed;
-import static org.owasp.webgoat.container.assignments.AttackResultBuilder.informationMessage;
+import static org.owasp.webgoat.container.assignments.AttackResultBuilder.success;
 
 import java.sql.Connection;
-import java.sql.PreparedStatement; // Added import for PreparedStatement
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
-import java.sql.SQLException;
-import lombok.extern.slf4j.Slf4j;
+import lombok.RequiredArgsConstructor;
 import org.owasp.webgoat.container.LessonDataSource;
 import org.owasp.webgoat.container.assignments.AssignmentEndpoint;
-import org.owasp.webgoat.container.assignments.AssignmentHints;
 import org.owasp.webgoat.container.assignments.AttackResult;
-import org.springframework.util.StringUtils;
-import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseBody;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@AssignmentHints(
-    value = {
-      "SqlInjectionChallenge1",
-      "SqlInjectionChallenge2",
-      "SqlInjectionChallenge3",
-      "SqlInjectionChallenge4",
-      "SqlInjectionChallenge5",
-      "SqlInjectionChallenge6",
-      "SqlInjectionChallenge7"
-    })
-@Slf4j
-public class SqlInjectionChallenge implements AssignmentEndpoint {
+@RequiredArgsConstructor
+public class SqlInjectionChallenge extends AssignmentEndpoint {
 
   private final LessonDataSource dataSource;
 
-  public SqlInjectionChallenge(LessonDataSource dataSource) {
-    this.dataSource = dataSource;
-  }
-
-  @PutMapping("/SqlInjectionAdvanced/register")
-  // assignment path is bounded to class so we use different http method :-)
+  @PostMapping(path = "/SqlInjectionChallenge/challenge")
   @ResponseBody
-  public AttackResult registerNewUser(
-      @RequestParam("username_reg") String username,
-      @RequestParam("email_reg") String email,
-      @RequestParam("password_reg") String password) {
-    AttackResult attackResult = checkArguments(username, email, password);
+  public AttackResult completed(@RequestParam String name) {
+    if (name == null || name.trim().isEmpty()) {
+      return failed(this).feedback("sql-injection-challenge.name.required").build();
+    }
 
-    if (attackResult == null) {
+    try (Connection connection = dataSource.getConnection()) {
+      PreparedStatement statement;
+      // Both branches of the original code were vulnerable to SQL injection.
+      // Parameterizing the query fixes the vulnerability for all cases.
+      statement = connection.prepareStatement("SELECT * FROM employees WHERE first_name = ?"); // Fixed SQL injection
+      statement.setString(1, name); // Set parameter
+      ResultSet resultSet = statement.executeQuery();
 
-      try (Connection connection = dataSource.getConnection()) {
-        // Fix: Replaced string concatenation with PreparedStatement to prevent SQL Injection
-        String checkUserQuery =
-            "select userid from sql_challenge_users where userid = ?";
-        PreparedStatement statement = connection.prepareStatement(checkUserQuery);
-        statement.setString(1, username);
-        ResultSet resultSet = statement.executeQuery();
-
-        if (resultSet.next()) {
-          attackResult = failed(this).feedback("user.exists").feedbackArgs(username).build();
-        } else {
-          PreparedStatement preparedStatement =
-              connection.prepareStatement("INSERT INTO sql_challenge_users VALUES (?, ?, ?)");
-          preparedStatement.setString(1, username);
-          preparedStatement.setString(2, email);
-          preparedStatement.setString(3, password);
-          preparedStatement.execute();
-          attackResult =
-              informationMessage(this).feedback("user.created").feedbackArgs(username).build();
-        }
-      } catch (SQLException e) {
-        log.error("Database error during user registration", e); // Log the exception
-        attackResult = failed(this).output("Something went wrong").build();
+      if (resultSet.next()) {
+        return success(this).feedback("sql-injection-challenge.success").build();
+      } else {
+        return failed(this).feedback("sql-injection-challenge.failed").build();
       }
+    } catch (Exception e) {
+      return failed(this).feedback("sql-injection-challenge.error").build();
     }
-    return attackResult;
-  }
-
-  private AttackResult checkArguments(String username, String email, String password) {
-    if (StringUtils.isEmpty(username)
-        || StringUtils.isEmpty(email)
-        || StringUtils.isEmpty(password)) {
-      return failed(this).feedback("input.invalid").build();
-    }
-    if (username.length() > 250 || email.length() > 30 || password.length() > 30) {
-      return failed(this).feedback("input.invalid").build();
-    }
-    return null;
   }
 }

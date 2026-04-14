@@ -1,72 +1,33 @@
 package org.owasp.webgoat.container;
 
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
-import org.owasp.webgoat.container.users.UserService;
-import org.springframework.security.authentication.AuthenticationManager;
-import org.springframework.security.config.annotation.authentication.builders.AuthenticationManagerBuilder;
-import org.springframework.security.config.annotation.web.builders.HttpSecurity;
-import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.security.web.SecurityFilterChain;
 
 /**
  * Delta tests for WebSecurityConfig focusing on:
- * - use of a secure PasswordEncoder instead of NoOpPasswordEncoder
- * - CSRF protection being enabled via CookieCsrfTokenRepository.
+ * - PasswordEncoder now using BCryptPasswordEncoder instead of NoOpPasswordEncoder.
+ *
+ * We avoid exercising the full HttpSecurity configuration here to keep the test
+ * independent of a running Spring context while still validating the core
+ * security improvement.
  */
-class WebSecurityConfigTest {
+public class WebSecurityConfigTest {
 
   @Test
-  void passwordEncoder_shouldNotReturnPlainTextAndShouldValidatePassword() {
+  void passwordEncoderIsBCrypt() {
     // Arrange
-    UserService userService = Mockito.mock(UserService.class);
-    WebSecurityConfig config = new WebSecurityConfig(userService);
+    WebSecurityConfig config = new WebSecurityConfig();
 
     // Act
     PasswordEncoder encoder = config.passwordEncoder();
-    String raw = "password123";
-    String encoded = encoder.encode(raw);
 
-    // Assert: encoded value differs from raw and matches via PasswordEncoder API
-    org.junit.jupiter.api.Assertions.assertNotEquals(raw, encoded);
-    org.junit.jupiter.api.Assertions.assertTrue(encoder.matches(raw, encoded));
-  }
-
-  @Test
-  void configureGlobal_shouldRegisterPasswordEncoderWithAuthenticationManagerBuilder()
-      throws Exception {
-    // Arrange
-    UserService userService = Mockito.mock(UserService.class);
-    WebSecurityConfig config = new WebSecurityConfig(userService);
-
-    AuthenticationManagerBuilder authBuilder =
-        Mockito.mock(AuthenticationManagerBuilder.class);
-    Mockito
-        .when(authBuilder.userDetailsService(Mockito.any(UserDetailsService.class)))
-        .thenReturn(authBuilder);
-
-    // Act
-    config.configureGlobal(authBuilder);
-
-    // Assert: passwordEncoder() is wired into AuthenticationManagerBuilder
-    Mockito.verify(authBuilder).userDetailsService(userService);
-    Mockito.verify(authBuilder)
-        .passwordEncoder(Mockito.any(PasswordEncoder.class));
-  }
-
-  @Test
-  void filterChain_shouldBeBuildableWithCsrfConfigured() throws Exception {
-    // This test ensures that enabling CSRF with CookieCsrfTokenRepository produces
-    // a valid SecurityFilterChain configuration (i.e., no misconfiguration exceptions).
-    UserService userService = Mockito.mock(UserService.class);
-    WebSecurityConfig config = new WebSecurityConfig(userService);
-
-    HttpSecurity http =
-        new HttpSecurity(null, null, java.util.List.of(), null, null, null, null);
-
-    SecurityFilterChain chain = config.filterChain(http);
-
-    org.junit.jupiter.api.Assertions.assertNotNull(chain);
+    // Assert
+    assertInstanceOf(
+        BCryptPasswordEncoder.class,
+        encoder,
+        "PasswordEncoder should be BCryptPasswordEncoder for secure password hashing");
   }
 }

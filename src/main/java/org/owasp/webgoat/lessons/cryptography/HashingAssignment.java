@@ -26,7 +26,7 @@ import org.springframework.web.bind.annotation.RestController;
 @AssignmentHints({"crypto-hashing.hints.1", "crypto-hashing.hints.2"})
 public class HashingAssignment implements AssignmentEndpoint {
   public static final String[] SECRETS = {"secret", "admin", "password", "123456", "passw0rd"};
-  private static final SecureRandom secureRandom = new SecureRandom(); // Added SecureRandom instance
+  private static final SecureRandom SECURE_RANDOM = new SecureRandom(); // Added SecureRandom instance
 
   @RequestMapping(path = "/crypto/hashing/md5", produces = MediaType.TEXT_HTML_VALUE)
   @ResponseBody
@@ -35,7 +35,7 @@ public class HashingAssignment implements AssignmentEndpoint {
     String md5Hash = (String) request.getSession().getAttribute("md5Hash");
     if (md5Hash == null) {
 
-      String secret = SECRETS[secureRandom.nextInt(SECRETS.length)]; // Changed to SecureRandom
+      String secret = SECRETS[SECURE_RANDOM.nextInt(SECRETS.length)]; // Changed from new Random().nextInt
 
       MessageDigest md = MessageDigest.getInstance("MD5");
       md.update(secret.getBytes());
@@ -53,7 +53,7 @@ public class HashingAssignment implements AssignmentEndpoint {
 
     String sha256 = (String) request.getSession().getAttribute("sha256");
     if (sha256 == null) {
-      String secret = SECRETS[secureRandom.nextInt(SECRETS.length)]; // Changed to SecureRandom
+      String secret = SECRETS[SECURE_RANDOM.nextInt(SECRETS.length)]; // Changed from new Random().nextInt
       sha256 = getHash(secret, "SHA-256");
       request.getSession().setAttribute("sha256Hash", sha256);
       request.getSession().setAttribute("sha256Secret", secret);

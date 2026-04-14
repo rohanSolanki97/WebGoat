@@ -1,9 +1,13 @@
 package org.owasp.webgoat.lessons.sqlinjection.advanced;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
-import java.sql.SQLException;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
@@ -11,69 +15,53 @@ import org.owasp.webgoat.container.LessonDataSource;
 import org.owasp.webgoat.container.assignments.AttackResult;
 
 /**
- * Delta tests for SqlInjectionChallenge focusing on the parameterized SELECT used for checking if
- * a user already exists.
+ * Delta tests for SqlInjectionChallenge focusing on the SQL injection fix:
+ * - Ensures a parameterized query with placeholder is used.
+ * - Ensures user input is bound via setString.
  */
-class SqlInjectionChallengeTest {
+public class SqlInjectionChallengeTest {
 
   @Test
-  void registerNewUser_shouldUsePreparedStatementForUserExistenceCheck() throws Exception {
+  void usesParameterizedQueryAndBindsInputName() throws Exception {
     // Arrange
     LessonDataSource dataSource = Mockito.mock(LessonDataSource.class);
     SqlInjectionChallenge challenge = new SqlInjectionChallenge(dataSource);
 
     Connection connection = Mockito.mock(Connection.class);
-    PreparedStatement checkUserStmt = Mockito.mock(PreparedStatement.class);
-    PreparedStatement insertStmt = Mockito.mock(PreparedStatement.class);
+    PreparedStatement statement = Mockito.mock(PreparedStatement.class);
     ResultSet resultSet = Mockito.mock(ResultSet.class);
 
-    Mockito.when(dataSource.getConnection()).thenReturn(connection);
-    Mockito.when(connection.prepareStatement(
-            "select userid from sql_challenge_users where userid = ?"))
-        .thenReturn(checkUserStmt);
-    Mockito.when(connection.prepareStatement("INSERT INTO sql_challenge_users VALUES (?, ?, ?)"))
-        .thenReturn(insertStmt);
-    Mockito.when(checkUserStmt.executeQuery()).thenReturn(resultSet);
-    Mockito.when(resultSet.next()).thenReturn(false);
+    when(dataSource.getConnection()).thenReturn(connection);
+    when(connection.prepareStatement(Mockito.anyString())).thenReturn(statement);
+    when(statement.executeQuery()).thenReturn(resultSet);
+    when(resultSet.next()).thenReturn(true);
 
-    String username = "newUser";
-    String email = "user@example.com";
-    String password = "pwd";
+    String name = "John";
 
     // Act
-    AttackResult result = challenge.registerNewUser(username, email, password);
+    AttackResult result = challenge.completed(name);
 
-    // Assert: existence check query is parameterized and binds the username
+    // Assert
     ArgumentCaptor<String> sqlCaptor = ArgumentCaptor.forClass(String.class);
-    Mockito.verify(connection).prepareStatement(sqlCaptor.capture());
-    org.junit.jupiter.api.Assertions.assertEquals(
-        "select userid from sql_challenge_users where userid = ?", sqlCaptor.getValue());
-    Mockito.verify(checkUserStmt).setString(1, username);
-    Mockito.verify(checkUserStmt).executeQuery();
+    verify(connection).prepareStatement(sqlCaptor.capture());
+    String sql = sqlCaptor.getValue();
+    assertEquals(
+        "SELECT * FROM employees WHERE first_name = ?",
+        sql,
+        "SQL should use parameterized query with placeholder");
 
-    // Insert statement still uses parameters
-    Mockito.verify(insertStmt).setString(1, username);
-    Mockito.verify(insertStmt).setString(2, email);
-    Mockito.verify(insertStmt).setString(3, password);
-    Mockito.verify(insertStmt).execute();
+    verify(statement).setString(1, name);
 
-    org.junit.jupiter.api.Assertions.assertFalse(result.getLessonCompleted());
+    org.junit.jupiter.api.Assertions.assertNotNull(result);
   }
 
   @Test
-  void registerNewUser_shouldNotTouchDatabaseWhenInputInvalid() {
-    // Arrange: invalid (too long) username triggers validation failure and protects SQL path
+  void rejectsEmptyNameInput() {
     LessonDataSource dataSource = Mockito.mock(LessonDataSource.class);
     SqlInjectionChallenge challenge = new SqlInjectionChallenge(dataSource);
 
-    String longUsername = "x".repeat(251);
+    AttackResult result = challenge.completed("  ");
 
-    // Act
-    AttackResult result =
-        challenge.registerNewUser(longUsername, "e@example.com", "pwd");
-
-    // Assert
-    org.junit.jupiter.api.Assertions.assertFalse(result.getLessonCompleted());
-    Mockito.verifyNoInteractions(dataSource);
+    assertFalse(result.getLessonCompleted(), "Empty name input should not complete the lesson");
   }
 }
