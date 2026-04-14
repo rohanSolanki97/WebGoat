@@ -12,14 +12,12 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.nio.file.Files;
-import java.nio.file.Path; // Added import for Path
-import java.nio.file.Paths; // Added import for Paths
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.List;
 import lombok.Getter;
 import lombok.SneakyThrows;
-import org.apache.commons.io.FilenameUtils;
+import org.apache.commons.io.FilenameUtils; // Import for FilenameUtils
 import org.owasp.webgoat.container.CurrentUsername;
 import org.owasp.webgoat.container.assignments.AssignmentEndpoint;
 import org.owasp.webgoat.container.assignments.AttackResult;
@@ -50,23 +48,10 @@ public class ProfileUploadBase implements AssignmentEndpoint {
     File uploadDirectory = cleanupAndCreateDirectoryForUser(username);
 
     try {
-      // Fix: Sanitize the filename to prevent path traversal.
-      // Use FilenameUtils.getName() to extract only the base filename.
-      String sanitizedFileName = FilenameUtils.getName(fullName);
-      if (sanitizedFileName.isEmpty()) {
-        return failed(this).feedback("path-traversal-profile-invalid-filename").build();
-      }
-
-      // Construct the target path using Paths.get and resolve, then normalize.
-      Path targetDirPath = Paths.get(uploadDirectory.getCanonicalPath());
-      Path uploadedFilePath = targetDirPath.resolve(sanitizedFileName).normalize();
-
-      // Critical validation: Ensure the resolved path is still within the intended upload directory.
-      if (!uploadedFilePath.startsWith(targetDirPath)) {
-        return failed(this).feedback("path-traversal-profile-attempt").build();
-      }
-
-      File uploadedFile = uploadedFilePath.toFile();
+      // Remediation: Sanitize fullName to prevent path traversal
+      // Use FilenameUtils.getName to extract only the filename, removing any path components (e.g., ../, absolute paths)
+      var sanitizedFileName = FilenameUtils.getName(fullName);
+      var uploadedFile = new File(uploadDirectory, sanitizedFileName);
       uploadedFile.createNewFile();
       FileCopyUtils.copy(file.getBytes(), uploadedFile);
 

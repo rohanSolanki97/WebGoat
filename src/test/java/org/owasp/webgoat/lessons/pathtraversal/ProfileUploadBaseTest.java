@@ -1,74 +1,90 @@
 package org.owasp.webgoat.lessons.pathtraversal;
 
-import static org.mockito.Mockito.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.File;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
-import org.owasp.webgoat.container.CurrentUsername;
+import org.mockito.Mockito;
 import org.owasp.webgoat.container.assignments.AttackResult;
-import org.springframework.http.MediaType;
-import org.springframework.http.ResponseEntity;
-import org.springframework.util.FileCopyUtils;
 import org.springframework.util.FileSystemUtils;
-import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
-/**
- * Delta tests for ProfileUploadBase focusing on filename sanitization and path normalization
- * preventing path traversal via the uploaded filename.
+/*
+ * Delta tests for:
+ *   Source: src/main/java/org/owasp/webgoat/lessons/pathtraversal/ProfileUploadBase.java
+ *   Test:   src/test/java/org/owasp/webgoat/lessons/pathtraversal/ProfileUploadBaseTest.java
+ *
+ * Focus: filename sanitization using FilenameUtils.getName to prevent path traversal.
  */
-class ProfileUploadBaseTest {
+public class ProfileUploadBaseTest {
 
-  private static final String BASE_DIR = "build/tmp/profileUploadHome";
+  @Test
+  void executeShouldStripPathComponentsFromFullName() throws Exception {
+    // Arrange
+    String baseDir = System.getProperty("java.io.tmpdir") + "/webgoat-pt";
+    ProfileUploadBase base = new ProfileUploadBase(baseDir);
 
-  @AfterEach
-  void cleanup() throws Exception {
-    Path base = Paths.get(BASE_DIR);
-    if (Files.exists(base)) {
-      FileSystemUtils.deleteRecursively(base);
+    MultipartFile file = Mockito.mock(MultipartFile.class);
+    Mockito.when(file.isEmpty()).thenReturn(false);
+    Mockito.when(file.getBytes()).thenReturn("dummy".getBytes());
+
+    String username = "user1";
+    // Attempted path traversal in filename
+    String fullName = "../outside/../evil.jpg";
+
+    // Clean any leftovers from previous runs
+    File root = new File(baseDir);
+    if (root.exists()) {
+      FileSystemUtils.deleteRecursively(root);
     }
+
+    // Act
+    AttackResult result = base.execute(file, fullName, username);
+
+    // Assert: file must be created within user's PathTraversal directory with sanitized name
+    File uploadDir = new File(baseDir, "/PathTraversal/" + username);
+    File[] files = uploadDir.listFiles();
+    assertTrue(
+        files != null && files.length == 1,
+        "Exactly one file should be stored in the user upload directory");
+    assertEquals(
+        "evil.jpg",
+        files[0].getName(),
+        "Path components must be stripped; only base filename should be used");
   }
 
   @Test
-  void execute_shouldStoreFileInsideUserDirectoryWithSanitizedName() throws Exception {
-    ProfileUploadBase base = new ProfileUploadBase(BASE_DIR);
-    MultipartFile file = mock(MultipartFile.class);
-    when(file.isEmpty()).thenReturn(false);
-    when(file.getBytes()).thenReturn("data".getBytes());
+  void executeShouldNotCreateFilesOutsideUserDirectory() throws Exception {
+    // Arrange
+    String baseDir = System.getProperty("java.io.tmpdir") + "/webgoat-pt2";
+    ProfileUploadBase base = new ProfileUploadBase(baseDir);
 
-    String username = "bob";
-    String originalName = "../outside.jpg";
+    MultipartFile file = Mockito.mock(MultipartFile.class);
+    Mockito.when(file.isEmpty()).thenReturn(false);
+    Mockito.when(file.getBytes()).thenReturn("dummy".getBytes());
 
-    AttackResult result = base.execute(file, originalName, username);
+    String username = "user2";
+    String fullName = "../../etc/passwd";
 
-    File userDir =
-        new File(BASE_DIR + File.separator + "PathTraversal" + File.separator + username);
-    File storedFile = userDir.listFiles() != null && userDir.listFiles().length > 0
-        ? userDir.listFiles()[0]
-        : null;
+    File outside = new File("/etc/passwd"); // Just used for name comparison, not real write
 
-    org.junit.jupiter.api.Assertions.assertNotNull(storedFile);
-    org.junit.jupiter.api.Assertions.assertTrue(storedFile.getName().endsWith("outside.jpg"));
-    org.junit.jupiter.api.Assertions.assertTrue(
-        storedFile.getCanonicalPath().startsWith(userDir.getCanonicalPath()));
-  }
+    // Clean prior data
+    File root = new File(baseDir);
+    if (root.exists()) {
+      FileSystemUtils.deleteRecursively(root);
+    }
 
-  @Test
-  void execute_shouldRejectWhenFilenameResolvesOutsideUploadDirectory() throws Exception {
-    ProfileUploadBase base = new ProfileUploadBase(BASE_DIR);
-    MultipartFile file = mock(MultipartFile.class);
-    when(file.isEmpty()).thenReturn(false);
-    when(file.getBytes()).thenReturn("data".getBytes());
+    // Act
+    base.execute(file, fullName, username);
 
-    String username = "bob";
-    // Even if attacker attempts traversal, sanitization + startsWith check should fail and
-    // not report success
-    AttackResult result = base.execute(file, "../../etc/passwd", username);
-
-    org.junit.jupiter.api.Assertions.assertFalse(result.getLessonCompleted());
+    // Assert: no file with the dangerous name appears outside the upload root
+    File uploadDir = new File(baseDir, "/PathTraversal/" + username);
+    File[] files = uploadDir.listFiles();
+    assertTrue(files != null && files.length == 1);
+    // Only filename, not full path
+    assertEquals(outside.getName(), files[0].getName());
+    // And its parent is the expected per-user directory
+    assertEquals(uploadDir.getCanonicalPath(), files[0].getParentFile().getCanonicalPath());
   }
 }
