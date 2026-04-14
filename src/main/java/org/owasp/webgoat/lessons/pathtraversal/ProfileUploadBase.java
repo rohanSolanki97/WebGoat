@@ -12,12 +12,13 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.Path; // Added import for Path
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.List;
 import lombok.Getter;
 import lombok.SneakyThrows;
-import org.apache.commons.io.FilenameUtils; // Import for FilenameUtils
+import org.apache.commons.io.FilenameUtils;
 import org.owasp.webgoat.container.CurrentUsername;
 import org.owasp.webgoat.container.assignments.AssignmentEndpoint;
 import org.owasp.webgoat.container.assignments.AttackResult;
@@ -48,10 +49,15 @@ public class ProfileUploadBase implements AssignmentEndpoint {
     File uploadDirectory = cleanupAndCreateDirectoryForUser(username);
 
     try {
-      // Remediation: Sanitize fullName to prevent path traversal
-      // Use FilenameUtils.getName to extract only the filename, removing any path components (e.g., ../, absolute paths)
-      var sanitizedFileName = FilenameUtils.getName(fullName);
-      var uploadedFile = new File(uploadDirectory, sanitizedFileName);
+      // Fixed: Sanitize filename to prevent path traversal
+      String safeFilename = FilenameUtils.getName(fullName); // Extracts just the filename
+      Path filePath = new File(uploadDirectory, safeFilename).toPath().normalize();
+
+      // Additional check to ensure the normalized path is still within the intended directory
+      if (!filePath.startsWith(uploadDirectory.toPath())) {
+        return failed(this).output("Path traversal attempt detected.").build();
+      }
+      var uploadedFile = filePath.toFile();
       uploadedFile.createNewFile();
       FileCopyUtils.copy(file.getBytes(), uploadedFile);
 

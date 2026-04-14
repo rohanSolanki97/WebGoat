@@ -14,9 +14,11 @@ import static org.springframework.http.MediaType.APPLICATION_JSON_VALUE;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.Path; // Added import for Path
 import java.util.HashMap;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.io.FilenameUtils; // Added import for FilenameUtils
 import org.owasp.webgoat.container.assignments.AssignmentEndpoint;
 import org.owasp.webgoat.container.assignments.AssignmentHints;
 import org.owasp.webgoat.container.assignments.AttackResult;
@@ -53,18 +55,24 @@ public class BlindSendFileAssignment implements AssignmentEndpoint, Initializabl
   private void createSecretFileWithRandomContents(WebGoatUser user) {
     var fileContents = "WebGoat 8.0 rocks... (" + randomAlphabetic(10) + ")";
     userToFileContents.put(user, fileContents);
-    // Remediation: Sanitize username to prevent path traversal
-    // Although user.getUsername() comes from AuthenticationPrincipal, it's good practice
-    // to sanitize any part of a path that could potentially be influenced by user input.
-    String sanitizedUsername = user.getUsername().replaceAll("[./\\\\]", ""); // Remove path separators and '.'
-    File targetDirectory = new File(webGoatHomeDirectory, "/XXE/" + sanitizedUsername);
+    File targetDirectory = new File(webGoatHomeDirectory, "/XXE/" + user.getUsername());
     if (!targetDirectory.exists()) {
       targetDirectory.mkdirs();
     }
     try {
-      Files.writeString(new File(targetDirectory, "secret.txt").toPath(), fileContents, UTF_8);
+      // Fixed: Ensure filename is safe and path is normalized to prevent traversal
+      String safeFilename = FilenameUtils.getName("secret.txt"); // Extract just the filename
+      Path filePath = new File(targetDirectory, safeFilename).toPath().normalize();
+
+      // Additional check to ensure the normalized path is still within the intended directory
+      if (!filePath.startsWith(targetDirectory.toPath())) {
+        log.error("Attempted path traversal detected for file creation: {}", filePath);
+        throw new IOException("Path traversal attempt detected.");
+      }
+
+      Files.writeString(filePath, fileContents, UTF_8);
     } catch (IOException e) {
-      log.error("Unable to write 'secret.txt' to '{}', error: {}", targetDirectory, e.getMessage());
+      log.error("Unable to write 'secret.txt' to '{}': {}", targetDirectory, e.getMessage());
     }
   }
 

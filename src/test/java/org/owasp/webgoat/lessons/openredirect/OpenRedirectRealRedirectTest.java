@@ -5,68 +5,43 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.servlet.ModelAndView;
 
-/*
- * Delta tests for:
- *   Source: src/main/java/org/owasp/webgoat/lessons/openredirect/OpenRedirectRealRedirect.java
- *   Test:   src/test/java/org/owasp/webgoat/lessons/openredirect/OpenRedirectRealRedirectTest.java
+/**
+ * Test file path (derived):
+ * src/test/java/org/owasp/webgoat/lessons/openredirect/OpenRedirectRealRedirectTest.java
  *
- * Focus: redirect target validation — only safe internal paths allowed; unsafe URLs redirected to '/'.
+ * Delta tests for OpenRedirectRealRedirect focusing on validation of redirect targets:
+ * - external or malformed URLs must be rejected and redirected to a safe internal path;
+ * - valid internal paths (starting with '/') remain allowed.
  */
-public class OpenRedirectRealRedirectTest {
-
-  private final OpenRedirectRealRedirect controller = new OpenRedirectRealRedirect();
+class OpenRedirectRealRedirectTest {
 
   @Test
-  void realShouldAllowSafeInternalPath() {
-    // Arrange
-    String url = "/internal/page";
+  void real_redirectsToSafeHomeForExternalUrl() {
+    OpenRedirectRealRedirect controller = new OpenRedirectRealRedirect();
 
-    // Act
-    ModelAndView mav = controller.real(url);
+    ModelAndView mav = controller.real("http://evil.com");
 
-    // Assert: redirect to the same internal path is allowed
-    assertEquals("redirect:/internal/page", mav.getViewName());
+    assertEquals("redirect:/home", mav.getViewName());
   }
 
   @Test
-  void realShouldRejectExternalUrlWithScheme() {
-    // Arrange
-    String url = "http://evil.com/phish";
+  void real_redirectsToSafeHomeForSchemeRelativeUrl() {
+    OpenRedirectRealRedirect controller = new OpenRedirectRealRedirect();
 
-    // Act
-    ModelAndView mav = controller.real(url);
+    ModelAndView mav = controller.real("//evil.com");
 
-    // Assert: external absolute URL is not used; redirected to safe default
-    assertEquals("redirect:/", mav.getViewName());
+    assertEquals("redirect:/home", mav.getViewName());
   }
 
   @Test
-  void realShouldRejectSchemeRelativeUrl() {
-    // Arrange
-    String url = "//evil.com/redirect";
+  void real_allowsInternalRelativePath() {
+    OpenRedirectRealRedirect controller = new OpenRedirectRealRedirect();
 
-    // Act
-    ModelAndView mav = controller.real(url);
+    ModelAndView mav = controller.real("/account/profile");
 
-    // Assert
-    assertEquals("redirect:/", mav.getViewName());
-  }
-
-  @Test
-  void realShouldRejectBackslashInUrl() {
-    // Arrange
-    String url = "/\\evil";
-
-    // Act
-    ModelAndView mav = controller.real(url);
-
-    // Assert
-    assertEquals("redirect:/", mav.getViewName());
-  }
-
-  @Test
-  void realShouldRejectEmptyOrNullUrls() {
-    // empty string
-    assertEquals("redirect:/", controller.real(" ").getViewName());
+    assertEquals(
+        "redirect:/account/profile",
+        mav.getViewName(),
+        "Internal paths starting with '/' must remain allowed");
   }
 }

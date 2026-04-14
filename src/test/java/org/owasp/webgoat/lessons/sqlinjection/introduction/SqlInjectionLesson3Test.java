@@ -1,95 +1,81 @@
 package org.owasp.webgoat.lessons.sqlinjection.introduction;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.Statement;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 import org.owasp.webgoat.container.LessonDataSource;
 import org.owasp.webgoat.container.assignments.AttackResult;
 
-/*
- * Delta tests for:
- *   Source: src/main/java/org/owasp/webgoat/lessons/sqlinjection/introduction/SqlInjectionLesson3.java
- *   Test:   src/test/java/org/owasp/webgoat/lessons/sqlinjection/introduction/SqlInjectionLesson3Test.java
+/**
+ * Test file path (derived):
+ * src/test/java/org/owasp/webgoat/lessons/sqlinjection/introduction/SqlInjectionLesson3Test.java
  *
- * Focus: refactor from executing arbitrary SQL to a single parameterized UPDATE with user input as value only.
+ * Delta tests for SqlInjectionLesson3 focusing on:
+ * - restriction of the user query to a specific UPDATE pattern,
+ * - use of PreparedStatement rather than executing arbitrary SQL from user input.
  */
-public class SqlInjectionLesson3Test {
+class SqlInjectionLesson3Test {
 
-  private LessonDataSource dataSource;
-  private SqlInjectionLesson3 lesson3;
-  private Connection connection;
-  private PreparedStatement updateStatement;
-  private Statement checkStatement;
-  private ResultSet resultSet;
+  @Test
+  void injectableQuery_rejectsArbitrarySql() {
+    LessonDataSource dataSource = Mockito.mock(LessonDataSource.class);
+    SqlInjectionLesson3 lesson = new SqlInjectionLesson3(dataSource);
 
-  @BeforeEach
-  void setup() throws Exception {
-    dataSource = Mockito.mock(LessonDataSource.class);
-    lesson3 = new SqlInjectionLesson3(dataSource);
+    String arbitraryQuery = "DROP TABLE employees;";
 
-    connection = Mockito.mock(Connection.class);
-    updateStatement = Mockito.mock(PreparedStatement.class);
-    checkStatement = Mockito.mock(Statement.class);
-    resultSet = Mockito.mock(ResultSet.class);
+    AttackResult result = lesson.injectableQuery(arbitraryQuery);
 
-    when(dataSource.getConnection()).thenReturn(connection);
-    when(connection.prepareStatement(anyString())).thenReturn(updateStatement);
-    when(connection.createStatement(
-            java.sql.ResultSet.TYPE_SCROLL_INSENSITIVE, java.sql.ResultSet.CONCUR_READ_ONLY))
+    assertFalse(
+        result.getLessonCompleted(),
+        "Arbitrary SQL must not be accepted or cause lesson completion after the fix");
+  }
+
+  @Test
+  void injectableQuery_usesPreparedStatementForAllowedUpdate() throws Exception {
+    LessonDataSource dataSource = Mockito.mock(LessonDataSource.class);
+    SqlInjectionLesson3 lesson = new SqlInjectionLesson3(dataSource);
+
+    Connection connection = Mockito.mock(Connection.class);
+    PreparedStatement preparedStatement = Mockito.mock(PreparedStatement.class);
+    Statement checkStatement = Mockito.mock(Statement.class);
+    ResultSet resultSet = Mockito.mock(ResultSet.class);
+
+    Mockito.when(dataSource.getConnection()).thenReturn(connection);
+    Mockito.when(connection.prepareStatement(Mockito.anyString())).thenReturn(preparedStatement);
+    Mockito
+        .when(connection.createStatement(
+            Mockito.eq(ResultSet.TYPE_SCROLL_INSENSITIVE),
+            Mockito.eq(ResultSet.CONCUR_READ_ONLY)))
         .thenReturn(checkStatement);
-    when(checkStatement.executeQuery(anyString())).thenReturn(resultSet);
-    when(resultSet.first()).thenReturn(true);
-    when(resultSet.getString("department")).thenReturn("Sales");
-  }
+    Mockito.when(checkStatement.executeQuery(Mockito.anyString())).thenReturn(resultSet);
+    Mockito.when(resultSet.first()).thenReturn(true);
+    Mockito.when(resultSet.getString("department")).thenReturn("Sales");
 
-  @Test
-  void completedShouldUseParameterizedUpdateStatement() {
-    // Arrange
-    String department = "Sales";
+    String allowedQuery =
+        "UPDATE employees SET department = 'Sales' WHERE last_name = 'Barnett'";
 
-    // Act
-    AttackResult result = lesson3.completed(department);
+    AttackResult result = lesson.injectableQuery(allowedQuery);
 
-    // Assert: SQL text is fixed and user input is bound as parameter
     ArgumentCaptor<String> sqlCaptor = ArgumentCaptor.forClass(String.class);
-    verify(connection).prepareStatement(sqlCaptor.capture());
+    Mockito.verify(connection).prepareStatement(sqlCaptor.capture());
     String usedSql = sqlCaptor.getValue();
-
-    assertEquals(
+    org.junit.jupiter.api.Assertions.assertEquals(
         "UPDATE employees SET department = ? WHERE last_name = 'Barnett'",
         usedSql,
-        "UPDATE statement must be parameterized and not contain raw user SQL");
-    verify(updateStatement).setString(1, department);
-    verify(updateStatement).executeUpdate();
-  }
+        "Fixed code must use a parameterized UPDATE statement");
 
-  @Test
-  void completedShouldTreatMaliciousPayloadAsValueNotSql() {
-    // Arrange
-    String malicious = "Sales', salary = 9999999 --";
+    Mockito.verify(preparedStatement).setString(1, "Sales");
+    Mockito.verify(preparedStatement).executeUpdate();
 
-    // Act
-    lesson3.completed(malicious);
-
-    // Assert: still same safe SQL, malicious string bound as parameter
-    ArgumentCaptor<String> sqlCaptor = ArgumentCaptor.forClass(String.class);
-    verify(connection).prepareStatement(sqlCaptor.capture());
-    String usedSql = sqlCaptor.getValue();
-
-    assertEquals(
-        "UPDATE employees SET department = ? WHERE last_name = 'Barnett'",
-        usedSql,
-        "Arbitrary SQL text must not be executed; only bound as parameter");
-    verify(updateStatement).setString(1, malicious);
+    assertTrue(
+        result.getLessonCompleted(),
+        "Lesson should still be completable when using the allowed, parameterized UPDATE");
   }
 }

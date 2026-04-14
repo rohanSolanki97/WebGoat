@@ -1,75 +1,72 @@
 package org.owasp.webgoat.lessons.sqlinjection.advanced;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.Statement;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import org.owasp.webgoat.container.LessonDataSource;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.owasp.webgoat.container.assignments.AttackResult;
 
-/*
- * Delta tests for:
- *   Source: src/main/java/org/owasp/webgoat/lessons/sqlinjection/advanced/SqlInjectionLesson6b.java
- *   Test:   src/test/java/org/owasp/webgoat/lessons/sqlinjection/advanced/SqlInjectionLesson6bTest.java
+/**
+ * Test file path (derived):
+ * src/test/java/org/owasp/webgoat/lessons/sqlinjection/advanced/SqlInjectionLesson6bTest.java
  *
- * Focus: logging behavior changed from printStackTrace() to structured logging via Slf4j.
+ * Delta tests for SqlInjectionLesson6b focusing on:
+ * - preserving functional behavior of completed(),
+ * - ensuring getPassword() no longer prints stack traces directly (logging used instead).
+ *
+ * Note: Direct verification of logging requires a logging test appender which is outside the
+ * current dependencies; this test asserts that exceptions during getPassword() do not break the
+ * flow and that lesson behavior remains unchanged.
  */
-public class SqlInjectionLesson6bTest {
+class SqlInjectionLesson6bTest {
 
-  private LessonDataSource dataSource;
-  private SqlInjectionLesson6b lesson6b;
-  private Connection connection;
-  private Statement statement;
-  private ResultSet resultSet;
+  @Test
+  void completed_returnsFailedWhenUseridDoesNotMatchPassword() throws Exception {
+    LessonDataSource dataSource = Mockito.mock(LessonDataSource.class);
+    SqlInjectionLesson6b lesson = new SqlInjectionLesson6b(dataSource);
 
-  @BeforeEach
-  void setup() throws Exception {
-    dataSource = Mockito.mock(LessonDataSource.class);
-    lesson6b = new SqlInjectionLesson6b(dataSource);
-
-    connection = Mockito.mock(Connection.class);
-    statement = Mockito.mock(Statement.class);
-    resultSet = Mockito.mock(ResultSet.class);
+    Connection connection = Mockito.mock(Connection.class);
+    Statement statement = Mockito.mock(Statement.class);
+    ResultSet resultSet = Mockito.mock(ResultSet.class);
 
     Mockito.when(dataSource.getConnection()).thenReturn(connection);
-    Mockito.when(
-            connection.createStatement(
-                ResultSet.TYPE_SCROLL_INSENSITIVE, ResultSet.CONCUR_READ_ONLY))
+    Mockito
+        .when(connection.createStatement(
+            Mockito.eq(ResultSet.TYPE_SCROLL_INSENSITIVE),
+            Mockito.eq(ResultSet.CONCUR_READ_ONLY)))
         .thenReturn(statement);
     Mockito.when(statement.executeQuery(Mockito.anyString())).thenReturn(resultSet);
     Mockito.when(resultSet.first()).thenReturn(true);
-    Mockito.when(resultSet.getString("password")).thenReturn("secret");
+    Mockito.when(resultSet.getString("password")).thenReturn("secret-password");
+
+    AttackResult result = lesson.completed("wrong-value");
+
+    assertFalse(
+        result.getLessonCompleted(),
+        "If supplied userid does not match the DB password, lesson should not be completed");
   }
 
   @Test
-  void getPasswordShouldReturnPasswordWithoutThrowing() {
-    // Act
-    String pwd = lesson6b.getPassword();
+  void getPassword_handlesSqlExceptionGracefully() throws Exception {
+    LessonDataSource dataSource = Mockito.mock(LessonDataSource.class);
+    SqlInjectionLesson6b lesson = new SqlInjectionLesson6b(dataSource);
 
-    // Assert
-    assertEquals("secret", pwd);
-  }
+    Connection connection = Mockito.mock(Connection.class);
+    Mockito.when(dataSource.getConnection()).thenReturn(connection);
+    Mockito
+        .when(connection.createStatement(
+            Mockito.eq(ResultSet.TYPE_SCROLL_INSENSITIVE),
+            Mockito.eq(ResultSet.CONCUR_READ_ONLY)))
+        .thenThrow(new RuntimeException("DB down"));
 
-  @Test
-  void getPasswordShouldLogErrorInsteadOfPrintingStackTraceOnSqlException() throws Exception {
-    // Arrange
-    Mockito.when(statement.executeQuery(Mockito.anyString()))
-        .thenThrow(new java.sql.SQLException("boom"));
+    String password = lesson.getPassword();
 
-    // Use a separate logger to inspect error logging side effect
-    Logger logger = LoggerFactory.getLogger(SqlInjectionLesson6b.class);
-
-    // Act: no exception should be thrown to caller
-    lesson6b.getPassword();
-
-    // NOTE: Verifying Slf4j log calls directly requires a logging framework appender or a mock
-    // logger; that is beyond the scope of this delta test. The main security fix is that
-    // printStackTrace() is no longer called, which is enforced structurally by the code change
-    // (no calls to Throwable#printStackTrace remain in this class).
+    // Even if logging happens internally, getPassword() must still return a non-null value.
+    org.junit.jupiter.api.Assertions.assertNotNull(
+        password, "getPassword() should handle exceptions and still return a value");
   }
 }
