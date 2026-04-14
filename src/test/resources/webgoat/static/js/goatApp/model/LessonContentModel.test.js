@@ -1,76 +1,54 @@
-const fs = require('fs');
-const path = require('path');
+// File: src/test/resources/webgoat/static/js/goatApp/model/LessonContentModel.test.js
+// Delta tests for LessonContentModel focusing on changed regex behavior in setContent:
+// - validate that pageNum extraction from URL uses the new linear regex logic.
 
-describe('LessonContentModel delta behavior - pageNum extraction', () => {
-  let originalDocument;
+define(['goatApp/model/LessonContentModel'], function (LessonContentModel) {
+  describe('LessonContentModel setContent delta tests', function () {
+    let originalUrl;
 
-  beforeAll(() => {
-    originalDocument = global.document;
-  });
+    beforeEach(function () {
+      originalUrl = window.document.URL;
+    });
 
-  afterAll(() => {
-    global.document = originalDocument;
-  });
+    afterEach(function () {
+      // Restore original URL after each test
+      Object.defineProperty(window.document, 'URL', {
+        configurable: true,
+        writable: true,
+        value: originalUrl
+      });
+    });
 
-  function createModelInstance() {
-    // Minimal Backbone/HTMLContentModel mock to emulate the extended model
-    const attributes = {};
-    const model = {
-      attributes,
-      set(key, value) {
-        this.attributes[key] = value;
-      },
-      get(key) {
-        return this.attributes[key];
-      },
-      trigger() {
-        // no-op for this delta test
-      }
-    };
+    function setDocumentUrl(url) {
+      Object.defineProperty(window.document, 'URL', {
+        configurable: true,
+        writable: true,
+        value: url
+      });
+    }
 
-    // Load the real file content and extract the setContent function body via eval in a scoped wrapper.
-    const filePath = path.resolve(
-      __dirname,
-      '../../../../main/resources/webgoat/static/js/goatApp/model/LessonContentModel.js'
-    );
-    const src = fs.readFileSync(filePath, 'utf8');
+    it('extracts trailing numeric page number from URL using new regex', function () {
+      // Arrange
+      setDocumentUrl('http://localhost/WebGoat/lesson/1234');
+      var model = new LessonContentModel();
 
-    // Simple AMD wrapper shim to get at the returned object definition
-    let exportedFactory = null;
-    const define = function (deps, factory) {
-      exportedFactory = factory(
-        {}, // $
-        { escape: v => v }, // _
-        { Model: { prototype: {} } }, // Backbone (minimal)
-        function HTMLContentModel() {} // HTMLContentModel
-      );
-    };
+      // Act: triggers setContent, which uses the new /\/(\d{1,4})$/ regex
+      model.setContent('<html></html>', true);
 
-    // Execute the module in this test scope
-    // eslint-disable-next-line no-eval
-    eval(src);
+      // Assert
+      expect(model.get('pageNum')).toBe('1234');
+    });
 
-    // exportedFactory is the extended prototype object with setContent, etc.
-    model.setContent = exportedFactory.setContent.bind(model);
+    it('sets pageNum to 0 when URL has no trailing digits', function () {
+      // Arrange
+      setDocumentUrl('http://localhost/WebGoat/lesson');
+      var model = new LessonContentModel();
 
-    return model;
-  }
+      // Act
+      model.setContent('<html></html>', true);
 
-  test('setContent should set pageNum from URL with numeric suffix', () => {
-    const model = createModelInstance();
-    global.document = { URL: 'http://example.com/lesson/123.lesson/45' };
-
-    model.setContent('<html/>', true);
-
-    expect(model.get('pageNum')).toBe('45');
-  });
-
-  test('setContent should default pageNum to 0 when URL has no numeric suffix', () => {
-    const model = createModelInstance();
-    global.document = { URL: 'http://example.com/lesson/intro.lesson' };
-
-    model.setContent('<html/>', true);
-
-    expect(model.get('pageNum')).toBe(0);
+      // Assert
+      expect(model.get('pageNum')).toBe(0);
+    });
   });
 });

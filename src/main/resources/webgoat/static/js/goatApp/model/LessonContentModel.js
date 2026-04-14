@@ -19,6 +19,7 @@ define(['jquery',
         },
 
         loadData: function(options) {
+            // Keep encoded lesson name for safety; do not change semantics
             this.urlRoot = _.escape(encodeURIComponent(options.name)) + '.lesson';
             var self = this;
             this.fetch().done(function(data) {
@@ -31,18 +32,14 @@ define(['jquery',
                 loadHelps = true;
             }
             this.set('content',content);
-            this.set('lessonUrl',document.URL.replace(/\.lesson.*/,'.lesson'));
-
-            // Use a safer, linear-time regex that avoids catastrophic backtracking
-            // Original: /.*\.lesson\/(\d{1,4})$/
-            // New:      /^.*\.lesson\/(\d{1,4})$/
-            var pageMatch = /^.*\.lesson\/(\d{1,4})$/.exec(document.URL);
-            if (pageMatch) {
-                this.set('pageNum', pageMatch[1]);
+            this.set('lessonUrl',document.URL.replace(/\.lesson.*/,'\.lesson'));
+            // FIX: use simpler, linear regex to avoid backtracking-heavy pattern
+            var pageNumMatch = /\/(\d{1,4})$/.exec(document.URL);
+            if (pageNumMatch) {
+                this.set('pageNum', pageNumMatch[1]);
             } else {
                 this.set('pageNum',0);
             }
-
             this.trigger('content:loaded',this,loadHelps);
         },
 

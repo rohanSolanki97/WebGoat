@@ -12,7 +12,6 @@ import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
-import lombok.extern.slf4j.Slf4j; // Added import for Slf4j
 import org.owasp.webgoat.container.LessonDataSource;
 import org.owasp.webgoat.container.assignments.AssignmentEndpoint;
 import org.owasp.webgoat.container.assignments.AttackResult;
@@ -20,6 +19,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseBody;
 import org.springframework.web.bind.annotation.RestController;
+import lombok.extern.slf4j.Slf4j; // Added import for Slf4j
 
 @RestController
 @Slf4j // Added Slf4j annotation for logging
@@ -54,14 +54,12 @@ public class SqlInjectionLesson6b implements AssignmentEndpoint {
           password = results.getString("password");
         }
       } catch (SQLException sqle) {
-        // Fix: Replaced printStackTrace with structured logging to prevent information exposure.
-        log.error("SQL Exception encountered while fetching password for 'dave'", sqle);
-        // do nothing (original behavior was to swallow exception after printing stack trace)
+        log.error("SQL Exception in getPassword method", sqle); // Replaced printStackTrace
+        // do nothing
       }
     } catch (Exception e) {
-      // Fix: Replaced printStackTrace with structured logging to prevent information exposure.
-      log.error("General Exception encountered in getPassword method", e);
-      // do nothing (original behavior was to swallow exception after printing stack trace)
+      log.error("Exception in getPassword method", e); // Replaced printStackTrace
+      // do nothing
     }
     return (password);
   }
