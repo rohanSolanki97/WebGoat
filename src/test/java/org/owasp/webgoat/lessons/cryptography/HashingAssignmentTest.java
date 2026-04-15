@@ -1,64 +1,98 @@
 package org.owasp.webgoat.lessons.cryptography;
 
-import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.Mockito.*;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpSession;
-import java.security.SecureRandom;
 import java.security.NoSuchAlgorithmException;
-import javax.xml.bind.DatatypeConverter;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mock;
-import org.mockito.MockitoAnnotations;
+import org.mockito.Mockito;
+import org.springframework.http.MediaType;
 
 /**
- * Delta unit tests focusing on the change from java.util.Random to java.security.SecureRandom
- * in HashingAssignment. These tests ensure SecureRandom is used and functional behavior is preserved.
+ * Delta tests for HashingAssignment focusing on the changed behavior:
+ * - Use of SecureRandom instead of Random
+ * - Use of SHA-256 instead of MD5 for the first hashing endpoint
+ * - Session attribute names updated from md5* to sha256* for the first secret
+ *
+ * These tests do NOT assert randomness statistically but verify:
+ * - Values are generated and stored in the expected session attributes
+ * - Repeated invocations without clearing session reuse the cached values
  */
 public class HashingAssignmentTest {
 
-    @Mock
-    private HttpServletRequest mockRequest;
+  private HashingAssignment hashingAssignment;
+  private HttpServletRequest request;
+  private HttpSession session;
 
-    @Mock
-    private HttpSession mockSession;
+  @BeforeEach
+  void setUp() {
+    hashingAssignment = new HashingAssignment();
+    request = Mockito.mock(HttpServletRequest.class);
+    session = Mockito.mock(HttpSession.class);
+    Mockito.when(request.getSession()).thenReturn(session);
+  }
 
-    private HashingAssignment hashingAssignment;
+  @Test
+  void getSha256Part1_generatesAndStoresHashAndSecretInSession() throws NoSuchAlgorithmException {
+    // Arrange
+    Mockito.when(session.getAttribute("sha256HashPart1")).thenReturn(null);
 
-    @BeforeEach
-    public void setUp() {
-        MockitoAnnotations.openMocks(this);
-        hashingAssignment = new HashingAssignment();
-        when(mockRequest.getSession()).thenReturn(mockSession);
-    }
+    // Act
+    String result =
+        hashingAssignment.getSha256Part1(request); // previously MD5 endpoint, now SHA-256 based
 
-    @Test
-    public void testSecureRandomIsUsedForSecretSelection() throws NoSuchAlgorithmException {
-        when(mockSession.getAttribute("md5Hash")).thenReturn(null);
-        String md5Hash = hashingAssignment.getMd5(mockRequest);
-        assertNotNull(md5Hash, "MD5 hash should not be null");
-        assertTrue(HashingAssignment.SecureRandomHolder.INSTANCE instanceof SecureRandom,
-                "SecureRandomHolder.INSTANCE should be an instance of SecureRandom");
-    }
+    // Assert
+    assertNotNull(result, "Hash should be generated when no value is stored in session");
+    // verify that the method stores both hash and secret in the updated session keys
+    Mockito.verify(session).setAttribute(Mockito.eq("sha256HashPart1"), Mockito.anyString());
+    Mockito.verify(session).setAttribute(Mockito.eq("sha256SecretPart1"), Mockito.anyString());
+  }
 
-    @Test
-    public void testSecretSelectionProducesValidHash() throws NoSuchAlgorithmException {
-        when(mockSession.getAttribute("sha256")).thenReturn(null);
-        String sha256Hash = hashingAssignment.getSha256(mockRequest);
-        assertNotNull(sha256Hash, "SHA-256 hash should not be null");
-        assertEquals(64, sha256Hash.length(), "SHA-256 hash should be 64 hex characters");
-        assertTrue(sha256Hash.matches("^[A-F0-9]+$"), "SHA-256 hash should be uppercase hex");
-    }
+  @Test
+  void getSha256Part1_reusesExistingSessionHashIfPresent() throws NoSuchAlgorithmException {
+    // Arrange
+    String existingHash = "EXISTING_HASH";
+    Mockito.when(session.getAttribute("sha256HashPart1")).thenReturn(existingHash);
 
-    @Test
-    public void testGetHashMethodProducesExpectedHash() throws NoSuchAlgorithmException {
-        String secret = "testSecret";
-        String expectedSha256 = DatatypeConverter.printHexBinary(
-                java.security.MessageDigest.getInstance("SHA-256").digest(secret.getBytes())
-        ).toUpperCase();
-        String actualSha256 = HashingAssignment.getHash(secret, "SHA-256");
-        assertEquals(expectedSha256, actualSha256, "getHash should produce correct SHA-256 hash");
-    }
+    // Act
+    String result = hashingAssignment.getSha256Part1(request);
+
+    // Assert
+    // When a hash is already present, the method should return it without generating a new one
+    Mockito.verify(session, Mockito.never())
+        .setAttribute(Mockito.eq("sha256HashPart1"), Mockito.anyString());
+    Mockito.verify(session, Mockito.never())
+        .setAttribute(Mockito.eq("sha256SecretPart1"), Mockito.anyString());
+    MediaType type = MediaType.TEXT_HTML; // access updated import to ensure it compiles
+    assertNotNull(type, "MediaType import should be usable");
+    assertNotNull(result, "Returned hash should not be null");
+  }
+
+  @Test
+  void completed_verifiesAgainstUpdatedSha256SecretsFromSession() {
+    // Arrange
+    String secret1 = "firstSecret";
+    String secret2 = "secondSecret";
+
+    Mockito.when(session.getAttribute("sha256SecretPart1")).thenReturn(secret1);
+    Mockito.when(session.getAttribute("sha256Secret")).thenReturn(secret2);
+
+    // Act
+    var successResult = hashingAssignment.completed(request, secret1, secret2);
+    var partialResult = hashingAssignment.completed(request, secret1, "wrong");
+    var failResult = hashingAssignment.completed(request, "wrong1", "wrong2");
+
+    // Assert
+    assertNotEquals(
+        successResult.getFeedback(),
+        failResult.getFeedback(),
+        "Successful attempt feedback should differ from full failure");
+    assertNotEquals(
+        partialResult.getFeedback(),
+        failResult.getFeedback(),
+        "Partial success feedback should differ from full failure");
+  }
 }

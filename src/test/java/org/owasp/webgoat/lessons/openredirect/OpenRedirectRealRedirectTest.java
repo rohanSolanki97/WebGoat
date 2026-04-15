@@ -1,68 +1,56 @@
 package org.owasp.webgoat.lessons.openredirect;
 
-import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.servlet.ModelAndView;
 
 /**
- * Delta test for OpenRedirectRealRedirect (BATCH-008)
- * Path: src/test/java/org/owasp/webgoat/lessons/openredirect/OpenRedirectRealRedirectTest.java
- *
- * Focus: ensure redirects are only allowed to validated internal URLs and that
- * untrusted external or traversal URLs are rejected and redirected to /welcome.mvc.
+ * Delta tests for OpenRedirectRealRedirect focusing on the changed behavior:
+ * - Only internal paths starting with '/' are now used as redirect targets.
+ * - All other values are redirected to '/' (safe default).
  */
-class OpenRedirectRealRedirectTest {
+public class OpenRedirectRealRedirectTest {
 
-  @Test
-  void real_shouldAllowSafeInternalUrl() {
-    // Arrange
-    OpenRedirectRealRedirect controller = new OpenRedirectRealRedirect();
-    String safeUrl = "/internal/page";
+  private OpenRedirectRealRedirect controller;
 
-    // Act
-    ModelAndView mav = controller.real(safeUrl);
-
-    // Assert
-    assertThat(mav.getViewName()).isEqualTo("redirect:" + safeUrl);
+  @BeforeEach
+  void setUp() {
+    controller = new OpenRedirectRealRedirect();
   }
 
   @Test
-  void real_shouldRejectExternalUrlAndFallbackToWelcome() {
-    // Arrange
-    OpenRedirectRealRedirect controller = new OpenRedirectRealRedirect();
-    String maliciousUrl = "https://evil.com/phish";
+  void real_allowsInternalRelativePath() {
+    String internal = "/welcome.mvc";
 
-    // Act
-    ModelAndView mav = controller.real(maliciousUrl);
+    ModelAndView mav = controller.real(internal);
 
-    // Assert
-    assertThat(mav.getViewName()).isEqualTo("redirect:/welcome.mvc");
+    assertEquals(
+        "redirect:" + internal,
+        mav.getViewName(),
+        "Internal application paths should be preserved as redirect targets");
   }
 
   @Test
-  void real_shouldRejectTraversalUrlAndFallbackToWelcome() {
-    // Arrange
-    OpenRedirectRealRedirect controller = new OpenRedirectRealRedirect();
-    String traversalUrl = "/../admin";
+  void real_blocksExternalUrl() {
+    String external = "http://evil.com/phish";
 
-    // Act
-    ModelAndView mav = controller.real(traversalUrl);
+    ModelAndView mav = controller.real(external);
 
-    // Assert
-    assertThat(mav.getViewName()).isEqualTo("redirect:/welcome.mvc");
+    assertEquals(
+        "redirect:/",
+        mav.getViewName(),
+        "External URLs must be redirected to the safe default '/' ");
   }
 
   @Test
-  void real_shouldRejectEmptyUrlAndFallbackToWelcome() {
-    // Arrange
-    OpenRedirectRealRedirect controller = new OpenRedirectRealRedirect();
-    String emptyUrl = "";
+  void real_handlesNullUrlSafely() {
+    ModelAndView mav = controller.real(null);
 
-    // Act
-    ModelAndView mav = controller.real(emptyUrl);
-
-    // Assert
-    assertThat(mav.getViewName()).isEqualTo("redirect:/welcome.mvc");
+    assertEquals(
+        "redirect:/",
+        mav.getViewName(),
+        "Null URL must fall back to safe default '/' ");
   }
 }

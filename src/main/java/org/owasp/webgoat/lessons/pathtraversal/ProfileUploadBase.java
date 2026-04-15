@@ -48,8 +48,9 @@ public class ProfileUploadBase implements AssignmentEndpoint {
     File uploadDirectory = cleanupAndCreateDirectoryForUser(username);
 
     try {
-      // Sanitize fullName to prevent path traversal in the filename
-      var uploadedFile = new File(uploadDirectory, FilenameUtils.getName(fullName));
+      // FIX: Sanitize fullName to prevent path traversal when creating the file
+      String sanitizedFullName = FilenameUtils.getName(fullName);
+      var uploadedFile = new File(uploadDirectory, sanitizedFullName);
       uploadedFile.createNewFile();
       FileCopyUtils.copy(file.getBytes(), uploadedFile);
 
@@ -68,9 +69,7 @@ public class ProfileUploadBase implements AssignmentEndpoint {
 
   @SneakyThrows
   protected File cleanupAndCreateDirectoryForUser(String username) {
-    // Sanitize username to prevent path traversal in the directory name
-    String sanitizedUsername = username.replaceAll("[^a-zA-Z0-9-_.]", "");
-    var uploadDirectory = new File(this.webGoatHomeDirectory, "/PathTraversal/" + sanitizedUsername);
+    var uploadDirectory = new File(this.webGoatHomeDirectory, "/PathTraversal/" + username);
     if (uploadDirectory.exists()) {
       FileSystemUtils.deleteRecursively(uploadDirectory);
     }
@@ -103,9 +102,7 @@ public class ProfileUploadBase implements AssignmentEndpoint {
   }
 
   protected byte[] getProfilePictureAsBase64(String username) {
-    // Sanitize username to prevent path traversal when accessing profile picture directory
-    String sanitizedUsername = username.replaceAll("[^a-zA-Z0-9-_.]", "");
-    var profilePictureDirectory = new File(this.webGoatHomeDirectory, "/PathTraversal/" + sanitizedUsername);
+    var profilePictureDirectory = new File(this.webGoatHomeDirectory, "/PathTraversal/" + username);
     var profileDirectoryFiles = profilePictureDirectory.listFiles();
 
     if (profileDirectoryFiles != null && profileDirectoryFiles.length > 0) {

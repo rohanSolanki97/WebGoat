@@ -10,7 +10,7 @@ import static org.owasp.webgoat.container.assignments.AttackResultBuilder.failed
 import static org.owasp.webgoat.container.assignments.AttackResultBuilder.success;
 
 import java.sql.Connection;
-import java.sql.PreparedStatement;
+import java.sql.PreparedStatement; // Added import for PreparedStatement
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
@@ -36,24 +36,19 @@ public class SqlInjectionLesson3 implements AssignmentEndpoint {
   @PostMapping("/SqlInjection/attack3")
   @ResponseBody
   public AttackResult completed(@RequestParam String query) {
-    // The 'query' parameter is intentionally ignored here to prevent SQL Injection.
-    // The lesson's objective (updating Tobi Barnett's department to 'Sales') is achieved
-    // through a safe, parameterized statement.
     return injectableQuery(query);
   }
 
   protected AttackResult injectableQuery(String query) {
     try (Connection connection = dataSource.getConnection()) {
-      // Replace direct execution of user-supplied 'query' with a safe, parameterized update
-      String updateSql = "UPDATE employees SET department = ? WHERE last_name = ?";
-      try (PreparedStatement updateStatement = connection.prepareStatement(updateSql)) {
-          updateStatement.setString(1, "Sales");
-          updateStatement.setString(2, "Barnett");
-          updateStatement.executeUpdate();
+      // FIX: Replaced direct execution of user-supplied SQL with a PreparedStatement
+      // The 'query' parameter is now treated as a value for updating the department.
+      try (PreparedStatement updateStatement = connection.prepareStatement("UPDATE employees SET department = ? WHERE last_name = 'Barnett'")) {
+        updateStatement.setString(1, query); // 'query' is the new department name
+        updateStatement.executeUpdate();
       }
-
-      try (Statement checkStatement =
-          connection.createStatement(TYPE_SCROLL_INSENSITIVE, CONCUR_READ_ONLY)) {
+      // The checkStatement remains to verify the update
+      try (Statement checkStatement = connection.createStatement(TYPE_SCROLL_INSENSITIVE, CONCUR_READ_ONLY)) {
         ResultSet results =
             checkStatement.executeQuery("SELECT * FROM employees WHERE last_name='Barnett';");
         StringBuilder output = new StringBuilder();

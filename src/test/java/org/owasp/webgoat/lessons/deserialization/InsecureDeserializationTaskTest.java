@@ -1,56 +1,86 @@
-// File: src/test/java/org/owasp/webgoat/lessons/deserialization/InsecureDeserializationTaskTest.java
-// Derived from src/main/java/org/owasp/webgoat/lessons/deserialization/InsecureDeserializationTask.java
 package org.owasp.webgoat.lessons.deserialization;
 
-import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.*;
 
-import java.io.ByteArrayOutputStream;
+import java.io.ByteArrayInputStream;
+import java.io.ObjectInputFilter;
 import java.io.ObjectOutputStream;
 import java.util.Base64;
 import org.dummy.insecure.framework.VulnerableTaskHolder;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.owasp.webgoat.container.assignments.AttackResult;
 
+/**
+ * Delta tests for InsecureDeserializationTask focusing on the changed behavior:
+ * - Application of ObjectInputFilter to restrict deserialization to an allowlist of classes.
+ *
+ * These tests verify:
+ * - Deserialization of an allowed type (VulnerableTaskHolder) still succeeds.
+ * - Deserialization of a disallowed type triggers the filter and results in a failure response.
+ */
 public class InsecureDeserializationTaskTest {
 
-  private String encodeToToken(Object obj) throws Exception {
-    ByteArrayOutputStream baos = new ByteArrayOutputStream();
+  private InsecureDeserializationTask task;
+
+  @BeforeEach
+  void setUp() {
+    task = new InsecureDeserializationTask();
+  }
+
+  private String serializeToBase64UrlSafe(Object o) throws Exception {
+    var baos = new java.io.ByteArrayOutputStream();
     try (ObjectOutputStream oos = new ObjectOutputStream(baos)) {
-      oos.writeObject(obj);
+      oos.writeObject(o);
     }
-    String b64 = Base64.getEncoder().encodeToString(baos.toByteArray());
-    // Mirror the token normalization logic from the controller
-    return b64.replace('+', '-').replace('/', '_');
+    String base64 = Base64.getEncoder().encodeToString(baos.toByteArray());
+    // reverse the replacement done in the controller ( '-' -> '+', '_' -> '/' )
+    return base64.replace('+', '-').replace('/', '_');
   }
 
   @Test
-  void completed_disallowedTypeResultsInFailedLesson() throws Exception {
-    // Arrange
-    InsecureDeserializationTask task = new InsecureDeserializationTask();
-    // Integer is not on the allow-list of the ObjectInputFilter
-    String token = encodeToToken(Integer.valueOf(42));
-
-    // Act
-    AttackResult result = task.completed(token);
-
-    // Assert
-    // The filter should reject this type and map to a failure result
-    assertFalse(result.getLessonCompleted());
-  }
-
-  @Test
-  void completed_allowedTypeDoesNotThrowAndReturnsResult() throws Exception {
-    // Arrange
-    InsecureDeserializationTask task = new InsecureDeserializationTask();
+  void completed_allowsDeserializationOfWhitelistedType() throws Exception {
+    // Arrange: create a token containing a whitelisted type
     VulnerableTaskHolder holder = new VulnerableTaskHolder();
-    String token = encodeToToken(holder);
+    String token = serializeToBase64UrlSafe(holder);
 
     // Act
-    AttackResult result = task.completed(token);
+    var result = task.completed(token);
 
-    // Assert
-    // We only assert that a non-null result is returned, indicating that the
-    // allow-listed class passes the ObjectInputFilter and is processed.
-    assertFalse(result == null);
+    // Assert: success or failure based only on timing logic, but not on class type rejection
+    // We can't easily control the artificial delay here, so just assert that filter did not
+    // reject the class (i.e., we didn't get the 'wrongobject' or 'stringobject' feedback).
+    String feedback = result.getFeedback();
+    boolean notTypeError =
+        feedback == null
+            || (!feedback.contains("insecure-deserialization.wrongobject")
+                && !feedback.contains("insecure-deserialization.stringobject"));
+    assertTrue(
+        notTypeError,
+        "Whitelisted type should not be rejected by ObjectInputFilter, "
+            + "even if timing rules still cause failure.");
+  }
+
+  @Test
+  void completed_rejectsNonWhitelistedType() throws Exception {
+    // Arrange: serialize a clearly non-whitelisted type (e.g. this test class itself)
+    Object malicious = new Object();
+    String token = serializeToBase64UrlSafe(malicious);
+
+    // Act
+    var result = task.completed(token);
+
+    // Assert: result should indicate an invalid version / rejection due to filter or class issue
+    String feedback = result.getFeedback();
+    // The exact message depends on how the exception is mapped, but we expect one of the failure
+    // feedback keys, not success.
+    boolean isFailureFeedback =
+        feedback != null
+            && (feedback.contains("insecure-deserialization.invalidversion")
+                || feedback.contains("insecure-deserialization.wrongobject")
+                || feedback.contains("insecure-deserialization.stringobject"));
+    assertTrue(
+        isFailureFeedback,
+        "Non-whitelisted type should be rejected by the filter or cause a failure feedback.");
   }
 }
