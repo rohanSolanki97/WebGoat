@@ -12,7 +12,6 @@ import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
-import lombok.extern.slf4j.Slf4j; // Added import for logging
 import org.owasp.webgoat.container.LessonDataSource;
 import org.owasp.webgoat.container.assignments.AssignmentEndpoint;
 import org.owasp.webgoat.container.assignments.AttackResult;
@@ -20,9 +19,10 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseBody;
 import org.springframework.web.bind.annotation.RestController;
+import lombok.extern.slf4j.Slf4j; // Added import for Slf4j
 
 @RestController
-@Slf4j // Added annotation for logging
+@Slf4j // Added Slf4j annotation for logging
 public class SqlInjectionLesson6b implements AssignmentEndpoint {
   private final LessonDataSource dataSource;
 
@@ -41,7 +41,7 @@ public class SqlInjectionLesson6b implements AssignmentEndpoint {
   }
 
   protected String getPassword() {
-    String password = "dave"; // Initial default value
+    String password = "dave";
     try (Connection connection = dataSource.getConnection()) {
       String query = "SELECT password FROM user_system_data WHERE user_name = 'dave'";
       try {
@@ -51,18 +51,18 @@ public class SqlInjectionLesson6b implements AssignmentEndpoint {
         ResultSet results = statement.executeQuery(query);
 
         if (results != null && results.first()) {
-          password = results.getString("password"); // If successful, update password
+          password = results.getString("password");
         }
       } catch (SQLException sqle) {
-        // Log the exception securely without exposing details to the client
-        log.error("SQL Exception during password retrieval for user 'dave'", sqle);
-        // In case of error, the default 'password' value ("dave") will be returned.
+        // FIX: Replaced printStackTrace with structured logging to prevent information exposure
+        log.error("SQL Exception during password retrieval", sqle);
+        // do nothing
       }
     } catch (Exception e) {
-      // Log the exception securely without exposing details to the client
-      log.error("General Exception during password retrieval for user 'dave'", e);
-      // In case of error, the default 'password' value ("dave") will be returned.
+      // FIX: Replaced printStackTrace with structured logging to prevent information exposure
+      log.error("General Exception during password retrieval", e);
+      // do nothing
     }
-    return password; // Always returns a String, either from DB or the default.
+    return (password);
   }
 }

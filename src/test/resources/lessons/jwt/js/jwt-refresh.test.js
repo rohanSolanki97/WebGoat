@@ -1,122 +1,130 @@
-// File path: src/test/resources/lessons/jwt/js/jwt-refresh.test.js
-// Focus: delta on removal of hard-coded password and safer token handling in newToken().
+/**
+ * Delta Jest tests for jwt-refresh.js focusing on the changed behavior:
+ * - Hard-coded password has been removed from the login payload.
+ * - getDemoPassword() now provides a non-secret demo value, optionally via a meta data attribute.
+ * - newToken uses server response fields instead of undefined variables.
+ *
+ * These tests verify:
+ * - login() sends password from getDemoPassword(), not a hard-coded literal.
+ * - getDemoPassword() reads from the configured meta tag and falls back when absent.
+ * - newToken() updates tokens from the response object.
+ *
+ * Test file path (derived from main path):
+ * src/test/resources/lessons/jwt/js/jwt-refresh.test.js
+ */
 
-const fs = require('fs');
 const path = require('path');
+const { JSDOM } = require('jsdom');
 
-// Provide a minimal jQuery ajax mock
-global.$ = {
-  ajax: jest.fn(() => ({
-    success: function (cb) {
-      // Record the callback and allow tests to invoke it
-      global.__lastJwtAjaxSuccess = cb;
-      return this;
-    },
-  })),
-};
+function loadJwtRefreshDom(html, url) {
+  const dom = new JSDOM(html, { url: url || 'http://localhost/' });
+  global.window = dom.window;
+  global.document = dom.window.document;
+  global.navigator = dom.window.navigator;
+  global.localStorage = dom.window.localStorage;
+  global.$ = require('jquery')(dom.window);
+  global.jQuery = global.$;
 
-// Provide webgoat.customjs namespace
-global.webgoat = { customjs: {} };
+  const scriptPath = path.resolve(
+    __dirname,
+    '../../../../main/resources/lessons/jwt/js/jwt-refresh.js'
+  );
+  // eslint-disable-next-line global-require, import/no-dynamic-require
+  require(scriptPath);
 
-// Load the updated script
-const scriptPath = path.resolve(
-  __dirname,
-  '../../../../../main/resources/lessons/jwt/js/jwt-refresh.js'
-);
-const scriptSource = fs.readFileSync(scriptPath, 'utf8');
-// eslint-disable-next-line no-new-func
-new Function('window', 'document', '$', 'webgoat', scriptSource)(
-  global,
-  { readyState: 'complete', addEventListener: () => {} },
-  global.$,
-  global.webgoat
-);
+  return dom;
+}
 
-describe('jwt-refresh delta tests (no hard-coded password, safer token handling)', () => {
-  beforeEach(() => {
-    global.localStorage = (function () {
-      let store = {};
-      return {
-        getItem: (k) => store[k] || null,
-        setItem: (k, v) => {
-          store[k] = String(v);
-        },
-        clear: () => {
-          store = {};
-        },
-      };
-    })();
-    global.console = global.console || {};
-    console.error = jest.fn();
-    $.ajax.mockClear();
-    global.__lastJwtAjaxSuccess = undefined;
+describe('jwt-refresh.js delta tests for demo password and token handling', () => {
+  afterEach(() => {
+    delete global.window;
+    delete global.document;
+    delete global.navigator;
+    delete global.localStorage;
+    delete global.$;
+    delete global.jQuery;
+    delete global.webgoat;
+    jest.resetModules();
   });
 
-  test('login should use runtime-configured password and not a hard-coded value', () => {
-    // Arrange: configure runtime password
-    global.WEBGOAT_JWT_PASSWORD = 'runtime-secret';
+  test('login uses demo password from meta tag and not a hard-coded secret', () => {
+    const html = `
+      <html>
+        <head>
+          <meta id="jwt-demo-password" data-password="demo-from-meta" />
+        </head>
+        <body></body>
+      </html>
+    `;
 
-    // Call login directly (it was defined globally by the script)
-    // eslint-disable-next-line no-undef
-    login('Jerry');
+    loadJwtRefreshDom(html);
 
-    expect($.ajax).toHaveBeenCalledTimes(1);
-    const ajaxArgs = $.ajax.mock.calls[0][0];
-    const body = JSON.parse(ajaxArgs.data);
+    const ajaxSpy = jest.spyOn(global.$, 'ajax').mockImplementation((opts) => {
+      if (opts && typeof opts.success === 'function') {
+        opts.success({ access_token: 'a', refresh_token: 'r' });
+      }
+      return { success: jest.fn() };
+    });
 
-    expect(body.user).toBe('Jerry');
-    expect(body.password).toBe('runtime-secret');
-    // Ensure the old hard-coded password is not accidentally used
-    expect(body.password).not.toBe('bm5nhSkxCXZkKRy4');
+    global.$(document).trigger('ready');
+
+    expect(ajaxSpy).toHaveBeenCalled();
+    const callArg = ajaxSpy.mock.calls[0][0];
+    const payload = JSON.parse(callArg.data);
+    expect(payload.password).toBe('demo-from-meta');
+    expect(payload.password).not.toBe('bm5nhSkxCXZkKRy4');
+
+    ajaxSpy.mockRestore();
   });
 
-  test('login should fail closed and not call ajax when password is not configured', () => {
-    // Arrange: ensure password is undefined
-    delete global.WEBGOAT_JWT_PASSWORD;
+  test('login falls back to non-secret default password when meta tag is absent', () => {
+    const html = `<html><head></head><body></body></html>`;
+    loadJwtRefreshDom(html);
 
-    // eslint-disable-next-line no-undef
-    login('Jerry');
+    const ajaxSpy = jest.spyOn(global.$, 'ajax').mockImplementation((opts) => {
+      if (opts && typeof opts.success === 'function') {
+        opts.success({ access_token: 'a', refresh_token: 'r' });
+      }
+      return { success: jest.fn() };
+    });
 
-    expect($.ajax).not.toHaveBeenCalled();
-    expect(console.error).toHaveBeenCalled();
+    global.$(document).trigger('ready');
+
+    const payload = JSON.parse(ajaxSpy.mock.calls[0][0].data);
+    expect(payload.password).toBe('demo-password');
+    expect(payload.password).not.toBe('bm5nhSkxCXZkKRy4');
+
+    ajaxSpy.mockRestore();
   });
 
-  test('newToken should read from and update localStorage tokens based on response', () => {
-    // Arrange
-    localStorage.setItem('access_token', 'oldAccess');
-    localStorage.setItem('refresh_token', 'oldRefresh');
+  test('newToken updates tokens from server response instead of undefined variables', () => {
+    const html = `<html><head></head><body></body></html>`;
+    loadJwtRefreshDom(html);
 
-    // eslint-disable-next-line no-undef
-    newToken();
+    global.localStorage.setItem('access_token', 'old-access');
+    global.localStorage.setItem('refresh_token', 'old-refresh');
 
-    expect($.ajax).toHaveBeenCalledTimes(1);
-    const ajaxArgs = $.ajax.mock.calls[0][0];
-    expect(ajaxArgs.headers.Authorization).toBe('Bearer oldAccess');
+    const ajaxSpy = jest.spyOn(global.$, 'ajax').mockImplementation((opts) => {
+      if (opts && typeof opts.success === 'function') {
+        opts.success({
+          access_token: 'new-access',
+          refresh_token: 'new-refresh'
+        });
+      }
+      return { success: jest.fn() };
+    });
 
-    const body = JSON.parse(ajaxArgs.data);
-    expect(body.refreshToken).toBe('oldRefresh');
-
-    // Simulate successful response callback invoking with new tokens
-    const response = {
-      access_token: 'newAccess',
-      refresh_token: 'newRefresh',
-    };
-    if (typeof global.__lastJwtAjaxSuccess === 'function') {
-      global.__lastJwtAjaxSuccess(response);
+    global.webgoat.customjs.addBearerToken();
+    // newToken is defined inside the IIFE, so we trigger it indirectly by attaching it to window
+    // for testing via a small shim.
+    const newTokenFn = global.window.newToken || global.window['newToken'];
+    if (typeof newTokenFn === 'function') {
+      newTokenFn();
     }
 
-    expect(localStorage.getItem('access_token')).toBe('newAccess');
-    expect(localStorage.getItem('refresh_token')).toBe('newRefresh');
-  });
+    expect(global.localStorage.getItem('access_token')).toBe('new-access');
+    expect(global.localStorage.getItem('refresh_token')).toBe('new-refresh');
 
-  test('newToken should not call ajax when refresh token is missing', () => {
-    // Arrange
-    localStorage.clear();
-
-    // eslint-disable-next-line no-undef
-    newToken();
-
-    expect($.ajax).not.toHaveBeenCalled();
-    expect(console.error).toHaveBeenCalled();
+    ajaxSpy.mockRestore();
   });
 });

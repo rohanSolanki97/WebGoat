@@ -19,10 +19,7 @@ define(['jquery',
         },
 
         loadData: function(options) {
-            // Safely derive lesson name for use in URL: sanitize and bound length
-            var name = options && typeof options.name === 'string' ? options.name : '';
-            var safeName = name.replace(/[^a-zA-Z0-9_\-]/g, '').slice(0, 64);
-            this.urlRoot = encodeURIComponent(safeName) + '.lesson';
+            this.urlRoot = _.escape(encodeURIComponent(options.name)) + '.lesson';
             var self = this;
             this.fetch().done(function(data) {
                 self.setContent(data);
@@ -35,13 +32,18 @@ define(['jquery',
             }
             this.set('content', content);
 
+            // FIX: use a safer, non-catastrophic regex and length-guarded parsing for lesson URL and page number
             var currentUrl = String(document.URL || '');
-            this.set('lessonUrl', currentUrl.replace(/\.lesson.*/, '.lesson'));
 
-            // Use a single bounded regex match to avoid unnecessary work and complexity
-            var pageMatch = currentUrl.match(/\.lesson\/(\d{1,4})$/);
-            if (pageMatch && pageMatch[1]) {
-                this.set('pageNum', pageMatch[1]);
+            // Derive base lesson URL by replacing any ".lesson" suffix with ".lesson"
+            // without allowing catastrophic backtracking; pattern is simple and linear.
+            this.set('lessonUrl', currentUrl.replace(/\.lesson(?:\/.*)?$/, '.lesson'));
+
+            // Extract page number when URL ends with ".lesson/<digits>" using a safe, linear regex
+            var pageNumMatch = currentUrl.match(/\.lesson\/(\d{1,4})$/);
+            if (pageNumMatch) {
+                // Input is constrained to 1–4 digits by the regex, so parseInt is safe here.
+                this.set('pageNum', parseInt(pageNumMatch[1], 10));
             } else {
                 this.set('pageNum', 0);
             }
