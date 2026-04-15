@@ -28,6 +28,8 @@ public class HashingAssignment implements AssignmentEndpoint {
 
     public static final String[] SECRETS = {"secret", "admin", "password", "123456", "passw0rd"};
 
+    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
+
     @RequestMapping(path = "/crypto/hashing/md5", produces = MediaType.TEXT_HTML_VALUE)
     @ResponseBody
     public String getMd5(HttpServletRequest request) throws NoSuchAlgorithmException {
@@ -35,7 +37,7 @@ public class HashingAssignment implements AssignmentEndpoint {
         String md5Hash = (String) request.getSession().getAttribute("md5Hash");
         if (md5Hash == null) {
 
-            String secret = SECRETS[SecureRandomHolder.INSTANCE.nextInt(SECRETS.length)];
+            String secret = SECRETS[SECURE_RANDOM.nextInt(SECRETS.length)];
 
             MessageDigest md = MessageDigest.getInstance("MD5");
             md.update(secret.getBytes());
@@ -53,7 +55,7 @@ public class HashingAssignment implements AssignmentEndpoint {
 
         String sha256 = (String) request.getSession().getAttribute("sha256");
         if (sha256 == null) {
-            String secret = SECRETS[SecureRandomHolder.INSTANCE.nextInt(SECRETS.length)];
+            String secret = SECRETS[SECURE_RANDOM.nextInt(SECRETS.length)];
             sha256 = getHash(secret, "SHA-256");
             request.getSession().setAttribute("sha256Hash", sha256);
             request.getSession().setAttribute("sha256Secret", secret);
@@ -86,13 +88,5 @@ public class HashingAssignment implements AssignmentEndpoint {
         md.update(secret.getBytes());
         byte[] digest = md.digest();
         return DatatypeConverter.printHexBinary(digest).toUpperCase();
-    }
-
-    /**
-     * SecureRandomHolder ensures a single SecureRandom instance is reused for efficiency
-     * while maintaining cryptographic security.
-     */
-    private static final class SecureRandomHolder {
-        private static final SecureRandom INSTANCE = new SecureRandom();
     }
 }
