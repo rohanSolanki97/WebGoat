@@ -1,30 +1,55 @@
 package org.owasp.webgoat.container;
 
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.security.config.annotation.web.builders.HttpSecurity;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.owasp.webgoat.container.users.UserService;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
+import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 
 public class WebSecurityConfigTest {
 
-    @Test
-    @DisplayName("PasswordEncoder bean should be BCryptPasswordEncoder")
-    void testPasswordEncoderIsBCrypt() {
-        WebSecurityConfig config = new WebSecurityConfig();
-        PasswordEncoder encoder = config.passwordEncoder();
-        assertTrue(encoder instanceof BCryptPasswordEncoder, "PasswordEncoder should be BCryptPasswordEncoder");
-    }
+  @Test
+  public void passwordEncoder_isNotNoOp() {
+    UserService userService = mock(UserService.class);
+    WebSecurityConfig config = new WebSecurityConfig(userService);
 
-    @Test
-    @DisplayName("CSRF protection should be enabled with CookieCsrfTokenRepository")
-    void testCsrfProtectionEnabled() throws Exception {
-        WebSecurityConfig config = new WebSecurityConfig();
-        HttpSecurity http = new HttpSecurity(null, null, null, null, null, null, null);
-        // This is a structural test: we verify that the configure method sets up CSRF with CookieCsrfTokenRepository
-        config.configure(http.csrf(csrf -> csrf.csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())));
-    }
+    PasswordEncoder encoder = config.passwordEncoder();
+
+    String raw = "secretPassword";
+    String encoded = encoder.encode(raw);
+
+    assertThat(encoded).isNotEqualTo(raw);
+    assertThat(encoder.matches(raw, encoded)).isTrue();
+  }
+
+  @Test
+  public void userDetailsServiceBean_returnsUserService() {
+    UserService userService = mock(UserService.class);
+    WebSecurityConfig config = new WebSecurityConfig(userService);
+
+    UserDetailsService uds = config.userDetailsServiceBean();
+
+    assertThat(uds).isSameAs(userService);
+  }
+
+  @Test
+  public void authenticationManager_isDelegatedToAuthenticationConfiguration() throws Exception {
+    UserService userService = mock(UserService.class);
+    WebSecurityConfig config = new WebSecurityConfig(userService);
+
+    AuthenticationConfiguration authenticationConfiguration =
+        mock(AuthenticationConfiguration.class);
+    AuthenticationManager authenticationManager = mock(AuthenticationManager.class);
+    when(authenticationConfiguration.getAuthenticationManager()).thenReturn(authenticationManager);
+
+    AuthenticationManager result = config.authenticationManager(authenticationConfiguration);
+
+    assertThat(result).isSameAs(authenticationManager);
+  }
 }

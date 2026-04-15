@@ -1,37 +1,57 @@
+/*
+ * SPDX-FileCopyrightText: Copyright © 2017 WebGoat authors
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ */
 package org.owasp.webgoat.lessons.challenges.challenge5;
 
-import java.sql.Connection;
+import static org.owasp.webgoat.container.assignments.AttackResultBuilder.failed;
+import static org.owasp.webgoat.container.assignments.AttackResultBuilder.success;
+
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
-import java.sql.SQLException;
-import javax.sql.DataSource;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Controller;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.owasp.webgoat.container.LessonDataSource;
+import org.owasp.webgoat.container.assignments.AssignmentEndpoint;
+import org.owasp.webgoat.container.assignments.AttackResult;
+import org.owasp.webgoat.lessons.challenges.Flags;
+import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.ResponseBody;
+import org.springframework.web.bind.annotation.RestController;
 
-@Controller
-public class Assignment5 {
+@RestController
+@Slf4j
+@RequiredArgsConstructor
+public class Assignment5 implements AssignmentEndpoint {
 
-    @Autowired
-    private DataSource dataSource;
+  private final LessonDataSource dataSource;
+  private final Flags flags;
 
-    @PostMapping("/challenge5/assignment")
-    public String executeChallenge(@RequestParam("userId") String userId) throws SQLException {
-        // Validate input: numeric only
-        if (!userId.matches("\\d+")) {
-            throw new IllegalArgumentException("Invalid userId format");
-        }
-
-        try (Connection conn = dataSource.getConnection();
-             PreparedStatement ps = conn.prepareStatement("SELECT * FROM users WHERE id = ?")) {
-            ps.setInt(1, Integer.parseInt(userId));
-            try (ResultSet rs = ps.executeQuery()) {
-                if (rs.next()) {
-                    // process result
-                }
-            }
-        }
-        return "success";
+  @PostMapping("/challenge/5")
+  @ResponseBody
+  public AttackResult login(
+      @RequestParam String username_login, @RequestParam String password_login) throws Exception {
+    if (!StringUtils.hasText(username_login) || !StringUtils.hasText(password_login)) {
+      return failed(this).feedback("required4").build();
     }
+    if (!"Larry".equals(username_login)) {
+      return failed(this).feedback("user.not.larry").feedbackArgs(username_login).build();
+    }
+    try (var connection = dataSource.getConnection()) {
+      PreparedStatement statement =
+          connection.prepareStatement(
+              "select password from challenge_users where userid = ? and password = ?");
+      statement.setString(1, username_login);
+      statement.setString(2, password_login);
+      ResultSet resultSet = statement.executeQuery();
+
+      if (resultSet.next()) {
+        return success(this).feedback("challenge.solved").feedbackArgs(flags.getFlag(5)).build();
+      } else {
+        return failed(this).feedback("challenge.close").build();
+      }
+    }
+  }
 }

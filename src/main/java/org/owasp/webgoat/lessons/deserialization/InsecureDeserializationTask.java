@@ -1,34 +1,78 @@
+/*
+ * SPDX-FileCopyrightText: Copyright © 2014 WebGoat authors
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ */
 package org.owasp.webgoat.lessons.deserialization;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import jakarta.servlet.http.HttpServletRequest;
+import static org.owasp.webgoat.container.assignments.AttackResultBuilder.failed;
+import static org.owasp.webgoat.container.assignments.AttackResultBuilder.success;
+
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.io.InvalidClassException;
+import java.io.ObjectInputStream;
+import java.io.ObjectInputFilter;
+import java.util.Base64;
+import org.dummy.insecure.framework.VulnerableTaskHolder;
+import org.owasp.webgoat.container.assignments.AssignmentEndpoint;
+import org.owasp.webgoat.container.assignments.AssignmentHints;
+import org.owasp.webgoat.container.assignments.AttackResult;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.ResponseBody;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-public class InsecureDeserializationTask {
+@AssignmentHints({
+  "insecure-deserialization.hints.1",
+  "insecure-deserialization.hints.2",
+  "insecure-deserialization.hints.3"
+})
+public class InsecureDeserializationTask implements AssignmentEndpoint {
 
-    private final ObjectMapper objectMapper = new ObjectMapper();
+  @PostMapping("/InsecureDeserialization/task")
+  @ResponseBody
+  public AttackResult completed(@RequestParam String token) throws IOException {
+    String b64token;
+    long before;
+    long after;
+    int delay;
 
-    @PostMapping("/deserialization/task")
-    public String handleTask(@RequestParam("data") String data, HttpServletRequest request) throws IOException {
-        // Validate JSON format
-        if (data == null || data.trim().isEmpty()) {
-            throw new IllegalArgumentException("Data cannot be empty");
+    b64token = token.replace('-', '+').replace('_', '/');
+
+    try (ObjectInputStream ois =
+        new ObjectInputStream(new ByteArrayInputStream(Base64.getDecoder().decode(b64token)))) {
+      // Apply a deserialization filter to restrict allowed classes
+      ObjectInputFilter filter = ObjectInputFilter.allowlist(
+          VulnerableTaskHolder.class.getName(),
+          String.class.getName()
+      );
+      ois.setObjectInputFilter(filter);
+
+      before = System.currentTimeMillis();
+      Object o = ois.readObject();
+      if (!(o instanceof VulnerableTaskHolder)) {
+        if (o instanceof String) {
+          return failed(this).feedback("insecure-deserialization.stringobject").build();
         }
-
-        // Safe deserialization into allowed type
-        AllowedData obj = objectMapper.readValue(data, AllowedData.class);
-
-        // Process safely
-        return "Processed: " + obj.getValue();
+        return failed(this).feedback("insecure-deserialization.wrongobject").build();
+      }
+      after = System.currentTimeMillis();
+    } catch (InvalidClassException e) {
+      return failed(this).feedback("insecure-deserialization.invalidversion").build();
+    } catch (IllegalArgumentException e) {
+      return failed(this).feedback("insecure-deserialization.expired").build();
+    } catch (Exception e) {
+      return failed(this).feedback("insecure-deserialization.invalidversion").build();
     }
 
-    public static class AllowedData {
-        private String value;
-        public String getValue() { return value; }
-        public void setValue(String value) { this.value = value; }
+    delay = (int) (after - before);
+    if (delay > 7000) {
+      return failed(this).build();
     }
+    if (delay < 3000) {
+      return failed(this).build();
+    }
+    return success(this).build();
+  }
 }

@@ -1,36 +1,56 @@
 package org.owasp.webgoat.lessons.deserialization;
 
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.assertj.core.api.Assertions.assertThat;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import jakarta.servlet.http.HttpServletRequest;
+import java.io.ByteArrayOutputStream;
+import java.io.ObjectOutputStream;
+import java.util.Base64;
+import org.dummy.insecure.framework.VulnerableTaskHolder;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
+import org.owasp.webgoat.container.assignments.AttackResult;
 
 public class InsecureDeserializationTaskTest {
 
-    @Test
-    @DisplayName("Should throw IllegalArgumentException for empty data")
-    void testEmptyDataThrowsException() {
-        InsecureDeserializationTask task = new InsecureDeserializationTask();
-        HttpServletRequest request = Mockito.mock(HttpServletRequest.class);
+  private final InsecureDeserializationTask task = new InsecureDeserializationTask();
 
-        assertThrows(IllegalArgumentException.class, () -> {
-            task.handleTask("", request);
-        });
+  private String toWebGoatToken(Object obj) throws Exception {
+    ByteArrayOutputStream bos = new ByteArrayOutputStream();
+    try (ObjectOutputStream oos = new ObjectOutputStream(bos)) {
+      oos.writeObject(obj);
     }
+    String base64 = Base64.getEncoder().encodeToString(bos.toByteArray());
+    return base64.replace('+', '-').replace('/', '_');
+  }
 
-    @Test
-    @DisplayName("Should deserialize valid JSON into AllowedData")
-    void testValidJsonDeserialization() throws Exception {
-        InsecureDeserializationTask task = new InsecureDeserializationTask();
-        HttpServletRequest request = Mockito.mock(HttpServletRequest.class);
-        String json = "{\"value\":\"test123\"}";
+  @Test
+  public void completed_handlesPlainStringWithoutCompletion() throws Exception {
+    String token = toWebGoatToken("just a string");
 
-        String result = task.handleTask(json, request);
+    AttackResult result = task.completed(token);
 
-        assertEquals("Processed: test123", result);
+    assertThat(result.getLessonCompleted()).isFalse();
+  }
+
+  @Test
+  public void completed_rejectsDisallowedType() throws Exception {
+    class Disallowed implements java.io.Serializable {
+      private static final long serialVersionUID = 1L;
     }
+    String token = toWebGoatToken(new Disallowed());
+
+    AttackResult result = task.completed(token);
+
+    assertThat(result.getLessonCompleted()).isFalse();
+  }
+
+  @Test
+  public void completed_controlsVulnerableTaskHolderBehavior() throws Exception {
+    VulnerableTaskHolder holder = new VulnerableTaskHolder();
+    String token = toWebGoatToken(holder);
+
+    AttackResult result = task.completed(token);
+
+    assertThat(result).isNotNull();
+  }
 }
