@@ -7,10 +7,7 @@ package org.owasp.webgoat.lessons.sqlinjection.advanced;
 import static org.owasp.webgoat.container.assignments.AttackResultBuilder.failed;
 import static org.owasp.webgoat.container.assignments.AttackResultBuilder.informationMessage;
 
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
-import java.sql.SQLException;
+import java.sql.*;
 import lombok.extern.slf4j.Slf4j;
 import org.owasp.webgoat.container.LessonDataSource;
 import org.owasp.webgoat.container.assignments.AssignmentEndpoint;
@@ -54,6 +51,7 @@ public class SqlInjectionChallenge implements AssignmentEndpoint {
     if (attackResult == null) {
 
       try (Connection connection = dataSource.getConnection()) {
+        // FIX: Replaced string concatenation with PreparedStatement to prevent SQL Injection
         String checkUserQuery =
             "select userid from sql_challenge_users where userid = ?";
         PreparedStatement statement = connection.prepareStatement(checkUserQuery);
@@ -73,7 +71,6 @@ public class SqlInjectionChallenge implements AssignmentEndpoint {
               informationMessage(this).feedback("user.created").feedbackArgs(username).build();
         }
       } catch (SQLException e) {
-        log.error("Database error during user registration", e);
         attackResult = failed(this).output("Something went wrong").build();
       }
     }

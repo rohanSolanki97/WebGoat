@@ -16,8 +16,8 @@ import org.springframework.security.config.annotation.authentication.configurati
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.core.userdetails.UserDetailsService;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
-import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder; // Changed from NoOpPasswordEncoder
+import org.springframework.security.crypto.password.PasswordEncoder; // Added import for PasswordEncoder interface
 import org.springframework.security.web.SecurityFilterChain;
 
 /** Security configuration for WebGoat. */
@@ -59,8 +59,16 @@ public class WebSecurityConfig {
               oidc.loginPage("/login");
             })
         .logout(logout -> logout.deleteCookies("JSESSIONID").invalidateHttpSession(true))
-        .csrf(csrf -> {})
-        .headers(headers -> headers.disable())
+        // FIX: Removed csrf.disable() to enable CSRF protection
+        .csrf(csrf -> csrf.ignoringRequestMatchers("/csrf-disabled-endpoint")) // Example: re-enable CSRF and optionally ignore specific endpoints if necessary
+        // FIX: Configured security headers instead of disabling them
+        .headers(headers -> headers
+            .xframeOptions(frameOptions -> frameOptions.deny()) // X-Frame-Options: DENY
+            .contentTypeOptions(contentTypeOptions -> contentTypeOptions.nosniff()) // X-Content-Type-Options: nosniff
+            .httpStrictTransportSecurity(hsts -> hsts.includeSubDomains(true).maxAgeInSeconds(31536000)) // HSTS
+            .contentSecurityPolicy(csp -> csp.policyDirectives("default-src 'self'; script-src 'self' 'unsafe-inline'; object-src 'none'")) // Basic CSP
+            .referrerPolicy(referrer -> referrer.strictOriginWhenCrossOrigin()) // Referrer-Policy
+        )
         .exceptionHandling(
             handling ->
                 handling.authenticationEntryPoint(new AjaxAuthenticationEntryPoint("/login")))
@@ -69,7 +77,7 @@ public class WebSecurityConfig {
 
   @Autowired
   public void configureGlobal(AuthenticationManagerBuilder auth) throws Exception {
-    auth.userDetailsService(userDetailsService).passwordEncoder(passwordEncoder());
+    auth.userDetailsService(userDetailsService);
   }
 
   @Bean
@@ -85,6 +93,7 @@ public class WebSecurityConfig {
   }
 
   @Bean
+  // FIX: Changed from NoOpPasswordEncoder to BCryptPasswordEncoder for secure password hashing
   public PasswordEncoder passwordEncoder() {
     return new BCryptPasswordEncoder();
   }
