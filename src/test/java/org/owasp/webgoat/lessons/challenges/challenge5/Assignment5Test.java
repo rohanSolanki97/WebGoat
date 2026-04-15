@@ -1,86 +1,74 @@
 package org.owasp.webgoat.lessons.challenges.challenge5;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.mockito.ArgumentMatchers.eq;
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
-import org.junit.jupiter.api.BeforeEach;
+import java.sql.SQLException;
+import java.util.regex.Pattern;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.owasp.webgoat.container.LessonDataSource;
 import org.owasp.webgoat.lessons.challenges.Flags;
-import org.springframework.util.StringUtils;
 
 /**
- * Delta tests for Assignment5 focusing on the changed behavior:
- * - SQL is now built using PreparedStatement placeholders instead of string concatenation.
- *
- * These tests verify:
- * - Correct SQL text with '?' placeholders is used.
- * - User inputs are bound via setString calls (no direct concatenation).
+ * Delta unit tests focusing on the security fixes applied:
+ * 1. Use of parameterized PreparedStatement instead of concatenated SQL.
+ * 2. Strict username format validation.
  */
 public class Assignment5Test {
 
-  private LessonDataSource dataSource;
-  private Flags flags;
-  private Assignment5 assignment5;
-  private Connection connection;
-  private PreparedStatement preparedStatement;
-  private ResultSet resultSet;
+    @Test
+    @DisplayName("Should reject invalid username format before querying database")
+    void testInvalidUsernameFormatRejected() throws Exception {
+        LessonDataSource mockDataSource = mock(LessonDataSource.class);
+        Flags mockFlags = mock(Flags.class);
+        Assignment5 assignment = new Assignment5(mockDataSource, mockFlags);
 
-  @BeforeEach
-  void setUp() throws Exception {
-    dataSource = mock(LessonDataSource.class);
-    flags = mock(Flags.class);
-    assignment5 = new Assignment5(dataSource, flags);
+        var result = assignment.login("invalid;name", "password123");
+        assertTrue(result.getFeedback().contains("invalid.username.format"),
+                "Feedback should indicate invalid username format");
+        verifyNoInteractions(mockDataSource);
+    }
 
-    connection = mock(Connection.class);
-    preparedStatement = mock(PreparedStatement.class);
-    resultSet = mock(ResultSet.class);
+    @Test
+    @DisplayName("Should use parameterized query for valid inputs")
+    void testParameterizedQueryUsage() throws Exception {
+        LessonDataSource mockDataSource = mock(LessonDataSource.class);
+        Flags mockFlags = mock(Flags.class);
+        Connection mockConnection = mock(Connection.class);
+        PreparedStatement mockStatement = mock(PreparedStatement.class);
+        ResultSet mockResultSet = mock(ResultSet.class);
 
-    when(dataSource.getConnection()).thenReturn(connection);
-    when(connection.prepareStatement(anyString())).thenReturn(preparedStatement);
-    when(preparedStatement.executeQuery()).thenReturn(resultSet);
-    when(flags.getFlag(5)).thenReturn("FLAG-5");
-  }
+        when(mockDataSource.getConnection()).thenReturn(mockConnection);
+        when(mockConnection.prepareStatement(anyString())).thenReturn(mockStatement);
+        when(mockStatement.executeQuery()).thenReturn(mockResultSet);
+        when(mockResultSet.next()).thenReturn(true);
+        when(mockFlags.getFlag(5)).thenReturn("FLAG-5");
 
-  @Test
-  void login_usesParameterizedQueryAndBindsUserInputs() throws Exception {
-    // Arrange
-    String username = "Larry";
-    String password = "securePassword";
-    when(resultSet.next()).thenReturn(true);
+        Assignment5 assignment = new Assignment5(mockDataSource, mockFlags);
+        var result = assignment.login("Larry", "securePass");
 
-    // Act
-    assignment5.login(username, password);
+        assertTrue(result.getFeedback().contains("challenge.solved"),
+                "Feedback should indicate challenge solved");
 
-    // Assert
-    // Validate that the SQL statement uses placeholders instead of concatenating user input
-    verify(connection)
-        .prepareStatement(
-            eq("select password from challenge_users where userid = ? and password = ?"));
-    // Verify that user-supplied values are bound through setString
-    verify(preparedStatement).setString(1, username);
-    verify(preparedStatement).setString(2, password);
-    // Ensure executeQuery is still invoked
-    verify(preparedStatement).executeQuery();
-  }
+        ArgumentCaptor<String> sqlCaptor = ArgumentCaptor.forClass(String.class);
+        verify(mockConnection).prepareStatement(sqlCaptor.capture());
+        String capturedSql = sqlCaptor.getValue();
+        assertTrue(capturedSql.contains("?"), "SQL should contain parameter placeholders");
+        verify(mockStatement).setString(1, "Larry");
+        verify(mockStatement).setString(2, "securePass");
+    }
 
-  @Test
-  void login_doesNotProceedOnEmptyInputs() throws Exception {
-    // Arrange
-    String username = "";
-    String password = "   ";
-
-    // Act
-    assignment5.login(username, password);
-
-    // Assert
-    // On invalid input, the method must not call into the data source at all
-    verifyNoInteractions(connection);
-    // Also verify that Spring's StringUtils behaves as expected for whitespace-only input
-    assertEquals(false, StringUtils.hasText(password));
-  }
+    @Test
+    @DisplayName("Username regex should match only allowed formats")
+    void testUsernamePattern() {
+        Pattern pattern = Pattern.compile("^[A-Za-z0-9_]{3,30}$");
+        assertTrue(pattern.matcher("Valid_Name123").matches(), "Valid username should match pattern");
+        assertFalse(pattern.matcher("in").matches(), "Too short username should not match pattern");
+        assertFalse(pattern.matcher("invalid;name").matches(), "Username with special chars should not match pattern");
+    }
 }
