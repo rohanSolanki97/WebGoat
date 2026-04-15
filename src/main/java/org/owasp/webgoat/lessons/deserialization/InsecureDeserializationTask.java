@@ -11,8 +11,9 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InvalidClassException;
 import java.io.ObjectInputStream;
-import java.io.ObjectInputFilter; // Added import for ObjectInputFilter
+import java.io.ObjectStreamClass;
 import java.util.Base64;
+import java.util.Set;
 import org.dummy.insecure.framework.VulnerableTaskHolder;
 import org.owasp.webgoat.container.assignments.AssignmentEndpoint;
 import org.owasp.webgoat.container.assignments.AssignmentHints;
@@ -24,52 +25,78 @@ import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @AssignmentHints({
-  "insecure-deserialization.hints.1",
-  "insecure-deserialization.hints.2",
-  "insecure-deserialization.hints.3"
+    "insecure-deserialization.hints.1",
+    "insecure-deserialization.hints.2",
+    "insecure-deserialization.hints.3"
 })
 public class InsecureDeserializationTask implements AssignmentEndpoint {
 
-  @PostMapping("/InsecureDeserialization/task")
-  @ResponseBody
-  public AttackResult completed(@RequestParam String token) throws IOException {
-    String b64token;
-    long before;
-    long after;
-    int delay;
+    /**
+     * Allowed classes for deserialization — enforce strict allowlist.
+     */
+    private static final Set<String> ALLOWED_CLASSES = Set.of(
+        "org.dummy.insecure.framework.VulnerableTaskHolder"
+    );
 
-    b64token = token.replace('-', '+').replace('_', '/');
+    @PostMapping("/InsecureDeserialization/task")
+    @ResponseBody
+    public AttackResult completed(@RequestParam String token) throws IOException {
+        String b64token;
+        long before;
+        long after;
+        int delay;
 
-    try (ObjectInputStream ois =
-        new ObjectInputStream(new ByteArrayInputStream(Base64.getDecoder().decode(b64token)))) {
-      // FIX: Added ObjectInputFilter to restrict deserialization to an allowlist of classes
-      ois.setObjectInputFilter(ObjectInputFilter.Config.createFilter(
-          "org.dummy.insecure.framework.VulnerableTaskHolder;java.lang.*;java.util.*;!*"
-      ));
-      before = System.currentTimeMillis();
-      Object o = ois.readObject();
-      if (!(o instanceof VulnerableTaskHolder)) {
-        if (o instanceof String) {
-          return failed(this).feedback("insecure-deserialization.stringobject").build();
+        // Basic input validation — reject null/empty tokens
+        if (token == null || token.trim().isEmpty()) {
+            return failed(this).feedback("insecure-deserialization.invalidinput").build();
         }
-        return failed(this).feedback("insecure-deserialization.wrongobject").build();
-      }
-      after = System.currentTimeMillis();
-    } catch (InvalidClassException e) {
-      return failed(this).feedback("insecure-deserialization.invalidversion").build();
-    } catch (IllegalArgumentException e) {
-      return failed(this).feedback("insecure-deserialization.expired").build();
-    } catch (Exception e) {
-      return failed(this).feedback("insecure-deserialization.invalidversion").build();
+
+        b64token = token.replace('-', '+').replace('_', '/');
+
+        try (SecureObjectInputStream ois =
+                 new SecureObjectInputStream(new ByteArrayInputStream(Base64.getDecoder().decode(b64token)))) {
+            before = System.currentTimeMillis();
+            Object o = ois.readObject();
+
+            if (!(o instanceof VulnerableTaskHolder)) {
+                if (o instanceof String) {
+                    return failed(this).feedback("insecure-deserialization.stringobject").build();
+                }
+                return failed(this).feedback("insecure-deserialization.wrongobject").build();
+            }
+            after = System.currentTimeMillis();
+        } catch (InvalidClassException e) {
+            return failed(this).feedback("insecure-deserialization.invalidversion").build();
+        } catch (IllegalArgumentException e) {
+            return failed(this).feedback("insecure-deserialization.expired").build();
+        } catch (SecurityException e) {
+            return failed(this).feedback("insecure-deserialization.disallowedclass").build();
+        } catch (Exception e) {
+            return failed(this).feedback("insecure-deserialization.invalidversion").build();
+        }
+
+        delay = (int) (after - before);
+        if (delay > 7000 || delay < 3000) {
+            return failed(this).build();
+        }
+        return success(this).build();
     }
 
-    delay = (int) (after - before);
-    if (delay > 7000) {
-      return failed(this).build();
+    /**
+     * Custom ObjectInputStream enforcing class allowlist.
+     */
+    private static class SecureObjectInputStream extends ObjectInputStream {
+        SecureObjectInputStream(ByteArrayInputStream in) throws IOException {
+            super(in);
+        }
+
+        @Override
+        protected Class<?> resolveClass(ObjectStreamClass desc) throws IOException, ClassNotFoundException {
+            String className = desc.getName();
+            if (!ALLOWED_CLASSES.contains(className)) {
+                throw new SecurityException("Deserialization of class " + className + " is not allowed");
+            }
+            return super.resolveClass(desc);
+        }
     }
-    if (delay < 3000) {
-      return failed(this).build();
-    }
-    return success(this).build();
-  }
 }

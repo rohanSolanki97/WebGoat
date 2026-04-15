@@ -1,86 +1,74 @@
 package org.owasp.webgoat.lessons.deserialization;
 
-import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.Mockito.*;
+import static org.junit.jupiter.api.Assertions.*;
 
-import java.io.ByteArrayInputStream;
-import java.io.ObjectInputFilter;
+import java.io.ByteArrayOutputStream;
 import java.io.ObjectOutputStream;
+import java.io.Serializable;
 import java.util.Base64;
 import org.dummy.insecure.framework.VulnerableTaskHolder;
-import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * Delta tests for InsecureDeserializationTask focusing on the changed behavior:
- * - Application of ObjectInputFilter to restrict deserialization to an allowlist of classes.
- *
- * These tests verify:
- * - Deserialization of an allowed type (VulnerableTaskHolder) still succeeds.
- * - Deserialization of a disallowed type triggers the filter and results in a failure response.
+ * Delta unit tests focusing on the security fixes applied:
+ * 1. Null/empty tokens are rejected.
+ * 2. SecureObjectInputStream enforces class allowlist.
+ * 3. Disallowed classes trigger SecurityException.
  */
 public class InsecureDeserializationTaskTest {
 
-  private InsecureDeserializationTask task;
-
-  @BeforeEach
-  void setUp() {
-    task = new InsecureDeserializationTask();
-  }
-
-  private String serializeToBase64UrlSafe(Object o) throws Exception {
-    var baos = new java.io.ByteArrayOutputStream();
-    try (ObjectOutputStream oos = new ObjectOutputStream(baos)) {
-      oos.writeObject(o);
+    @Test
+    @DisplayName("Null token should be rejected")
+    void testNullTokenRejected() throws Exception {
+        InsecureDeserializationTask task = new InsecureDeserializationTask();
+        var result = task.completed(null);
+        assertTrue(result.getFeedback().contains("insecure-deserialization.invalidinput"),
+                "Feedback should indicate invalid input");
     }
-    String base64 = Base64.getEncoder().encodeToString(baos.toByteArray());
-    // reverse the replacement done in the controller ( '-' -> '+', '_' -> '/' )
-    return base64.replace('+', '-').replace('/', '_');
-  }
 
-  @Test
-  void completed_allowsDeserializationOfWhitelistedType() throws Exception {
-    // Arrange: create a token containing a whitelisted type
-    VulnerableTaskHolder holder = new VulnerableTaskHolder();
-    String token = serializeToBase64UrlSafe(holder);
+    @Test
+    @DisplayName("Empty token should be rejected")
+    void testEmptyTokenRejected() throws Exception {
+        InsecureDeserializationTask task = new InsecureDeserializationTask();
+        var result = task.completed("   ");
+        assertTrue(result.getFeedback().contains("insecure-deserialization.invalidinput"),
+                "Feedback should indicate invalid input");
+    }
 
-    // Act
-    var result = task.completed(token);
+    @Test
+    @DisplayName("Allowed class should deserialize successfully")
+    void testAllowedClassDeserialization() throws Exception {
+        VulnerableTaskHolder holder = new VulnerableTaskHolder();
+        String token = serializeToBase64(holder);
 
-    // Assert: success or failure based only on timing logic, but not on class type rejection
-    // We can't easily control the artificial delay here, so just assert that filter did not
-    // reject the class (i.e., we didn't get the 'wrongobject' or 'stringobject' feedback).
-    String feedback = result.getFeedback();
-    boolean notTypeError =
-        feedback == null
-            || (!feedback.contains("insecure-deserialization.wrongobject")
-                && !feedback.contains("insecure-deserialization.stringobject"));
-    assertTrue(
-        notTypeError,
-        "Whitelisted type should not be rejected by ObjectInputFilter, "
-            + "even if timing rules still cause failure.");
-  }
+        InsecureDeserializationTask task = new InsecureDeserializationTask();
+        var result = task.completed(token);
+        assertTrue(result.getFeedback().isEmpty() || result.getFeedback().contains("success"),
+                "Allowed class should result in success feedback");
+    }
 
-  @Test
-  void completed_rejectsNonWhitelistedType() throws Exception {
-    // Arrange: serialize a clearly non-whitelisted type (e.g. this test class itself)
-    Object malicious = new Object();
-    String token = serializeToBase64UrlSafe(malicious);
+    @Test
+    @DisplayName("Disallowed class should trigger SecurityException feedback")
+    void testDisallowedClassDeserialization() throws Exception {
+        class MaliciousClass implements Serializable {
+            private static final long serialVersionUID = 1L;
+        }
+        String token = serializeToBase64(new MaliciousClass());
 
-    // Act
-    var result = task.completed(token);
+        InsecureDeserializationTask task = new InsecureDeserializationTask();
+        var result = task.completed(token);
+        assertTrue(result.getFeedback().contains("insecure-deserialization.disallowedclass"),
+                "Disallowed class should trigger disallowed class feedback");
+    }
 
-    // Assert: result should indicate an invalid version / rejection due to filter or class issue
-    String feedback = result.getFeedback();
-    // The exact message depends on how the exception is mapped, but we expect one of the failure
-    // feedback keys, not success.
-    boolean isFailureFeedback =
-        feedback != null
-            && (feedback.contains("insecure-deserialization.invalidversion")
-                || feedback.contains("insecure-deserialization.wrongobject")
-                || feedback.contains("insecure-deserialization.stringobject"));
-    assertTrue(
-        isFailureFeedback,
-        "Non-whitelisted type should be rejected by the filter or cause a failure feedback.");
-  }
+    // Helper method to serialize object to Base64 token
+    private String serializeToBase64(Object obj) throws Exception {
+        ByteArrayOutputStream bos = new ByteArrayOutputStream();
+        try (ObjectOutputStream oos = new ObjectOutputStream(bos)) {
+            oos.writeObject(obj);
+        }
+        String b64 = Base64.getEncoder().encodeToString(bos.toByteArray());
+        return b64.replace('+', '-').replace('/', '_');
+    }
 }
