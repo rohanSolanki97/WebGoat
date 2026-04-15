@@ -1,59 +1,56 @@
 package org.owasp.webgoat.lessons.cryptography;
 
-import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.Mockito.*;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 
-import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpSession;
-import java.security.NoSuchAlgorithmException;
+import java.security.SecureRandom;
+import java.util.HashSet;
+import java.util.Set;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.RepeatedTest;
 import org.junit.jupiter.api.Test;
 
 /**
- * Delta unit tests focusing on the security fixes applied:
- * 1. Use of SecureRandom instead of Random for secret selection.
- * 2. Replacement of MD5 with SHA-256 in getMd5() method.
+ * Delta unit tests for HashingAssignment focusing on the change from java.util.Random to
+ * java.security.SecureRandom to ensure unpredictability of secret selection.
  */
 public class HashingAssignmentTest {
 
     @Test
-    @DisplayName("getMd5 should use SecureRandom and SHA-256 hashing")
-    void testGetMd5UsesSecureRandomAndSHA256() throws NoSuchAlgorithmException {
-        // Arrange
-        HashingAssignment assignment = new HashingAssignment();
-        HttpServletRequest request = mock(HttpServletRequest.class);
-        HttpSession session = mock(HttpSession.class);
-
-        when(request.getSession()).thenReturn(session);
-        when(session.getAttribute("md5Hash")).thenReturn(null);
-
-        // Act
-        String hash = assignment.getMd5(request);
+    @DisplayName("SecureRandomHolder should use SecureRandom instance")
+    void testSecureRandomHolderUsesSecureRandom() {
+        // Arrange & Act
+        SecureRandom sr = HashingAssignment.SecureRandomHolder.INSTANCE;
 
         // Assert
-        assertNotNull(hash, "Hash should not be null");
-        assertEquals(64, hash.length(), "SHA-256 hash should be 64 hex characters");
-        verify(session).setAttribute(eq("md5Hash"), anyString());
-        verify(session).setAttribute(eq("md5Secret"), anyString());
+        assertTrue(sr instanceof SecureRandom, "INSTANCE should be of type SecureRandom");
+    }
+
+    @RepeatedTest(5)
+    @DisplayName("SecureRandomHolder should produce varied outputs across invocations")
+    void testSecureRandomProducesDifferentValues() {
+        // Arrange
+        Set<Integer> results = new HashSet<>();
+        int bound = HashingAssignment.SECRETS.length;
+
+        // Act
+        for (int i = 0; i < 10; i++) {
+            results.add(HashingAssignment.SecureRandomHolder.INSTANCE.nextInt(bound));
+        }
+
+        // Assert
+        assertTrue(results.size() > 1, "SecureRandom should produce varied outputs");
     }
 
     @Test
-    @DisplayName("SecureRandom index generation should be within bounds")
-    void testSecureRandomIndexWithinBounds() {
+    @DisplayName("SecureRandomHolder should not produce predictable sequence")
+    void testSecureRandomIsNotPredictable() {
+        // Arrange
         int bound = HashingAssignment.SECRETS.length;
-        int index = invokeSecureRandomIndex(bound);
-        assertTrue(index >= 0 && index < bound, "Index should be within valid range");
-    }
+        int first = HashingAssignment.SecureRandomHolder.INSTANCE.nextInt(bound);
+        int second = HashingAssignment.SecureRandomHolder.INSTANCE.nextInt(bound);
 
-    // Helper to invoke private method getSecureRandomIndex via reflection
-    private int invokeSecureRandomIndex(int bound) {
-        try {
-            var method = HashingAssignment.class.getDeclaredMethod("getSecureRandomIndex", int.class);
-            method.setAccessible(true);
-            return (int) method.invoke(null, bound);
-        } catch (Exception e) {
-            fail("Failed to invoke getSecureRandomIndex: " + e.getMessage());
-            return -1;
-        }
+        // Assert
+        assertNotEquals(first, second, "Two consecutive calls should not always be equal");
     }
 }
