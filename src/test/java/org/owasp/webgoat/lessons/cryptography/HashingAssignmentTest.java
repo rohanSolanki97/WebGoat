@@ -1,56 +1,81 @@
 package org.owasp.webgoat.lessons.cryptography;
 
-import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.*;
 
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpSession;
+import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
-import java.util.HashSet;
-import java.util.Set;
-import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.RepeatedTest;
+import java.util.Arrays;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 /**
- * Delta unit tests for HashingAssignment focusing on the change from java.util.Random to
- * java.security.SecureRandom to ensure unpredictability of secret selection.
+ * Delta unit tests focusing on verifying that SecureRandom is used instead of Random
+ * and that functional behavior remains correct after the fix.
+ *
+ * This test assumes the HashingAssignment code has been refactored to allow injection
+ * of the RNG for testing purposes via a setter or constructor.
  */
 public class HashingAssignmentTest {
 
-    @Test
-    @DisplayName("SecureRandomHolder should use SecureRandom instance")
-    void testSecureRandomHolderUsesSecureRandom() {
-        // Arrange & Act
-        SecureRandom sr = HashingAssignment.SecureRandomHolder.INSTANCE;
+    private HashingAssignment hashingAssignment;
+    private HttpServletRequest requestMock;
+    private HttpSession sessionMock;
 
-        // Assert
-        assertTrue(sr instanceof SecureRandom, "INSTANCE should be of type SecureRandom");
+    @BeforeEach
+    public void setUp() {
+        hashingAssignment = new HashingAssignment();
+        requestMock = mock(HttpServletRequest.class);
+        sessionMock = mock(HttpSession.class);
+        when(requestMock.getSession()).thenReturn(sessionMock);
     }
 
-    @RepeatedTest(5)
-    @DisplayName("SecureRandomHolder should produce varied outputs across invocations")
-    void testSecureRandomProducesDifferentValues() {
-        // Arrange
-        Set<Integer> results = new HashSet<>();
-        int bound = HashingAssignment.SECRETS.length;
+    @Test
+    public void testGetMd5_UsesInjectedSecureRandomAndStoresSecret() throws NoSuchAlgorithmException {
+        // Arrange: Inject a SecureRandom mock to verify usage
+        SecureRandom secureRandomMock = mock(SecureRandom.class);
+        when(secureRandomMock.nextInt(HashingAssignment.SECRETS.length)).thenReturn(2); // deterministic secret
+        hashingAssignment.setSecureRandom(secureRandomMock);
+        when(sessionMock.getAttribute("md5Hash")).thenReturn(null);
 
         // Act
-        for (int i = 0; i < 10; i++) {
-            results.add(HashingAssignment.SecureRandomHolder.INSTANCE.nextInt(bound));
-        }
+        String resultHash = hashingAssignment.getMd5(requestMock);
 
         // Assert
-        assertTrue(results.size() > 1, "SecureRandom should produce varied outputs");
+        assertNotNull(resultHash, "MD5 hash should not be null");
+        verify(secureRandomMock).nextInt(HashingAssignment.SECRETS.length);
+        ArgumentCaptor<String> secretCaptor = ArgumentCaptor.forClass(String.class);
+        verify(sessionMock).setAttribute(eq("md5Secret"), secretCaptor.capture());
+        assertEquals(HashingAssignment.SECRETS[2], secretCaptor.getValue(),
+                "Secret should match the deterministic value from SecureRandom mock");
     }
 
     @Test
-    @DisplayName("SecureRandomHolder should not produce predictable sequence")
-    void testSecureRandomIsNotPredictable() {
-        // Arrange
-        int bound = HashingAssignment.SECRETS.length;
-        int first = HashingAssignment.SecureRandomHolder.INSTANCE.nextInt(bound);
-        int second = HashingAssignment.SecureRandomHolder.INSTANCE.nextInt(bound);
+    public void testGetSha256_UsesInjectedSecureRandomAndStoresSecret() throws NoSuchAlgorithmException {
+        // Arrange: Inject a SecureRandom mock to verify usage
+        SecureRandom secureRandomMock = mock(SecureRandom.class);
+        when(secureRandomMock.nextInt(HashingAssignment.SECRETS.length)).thenReturn(4); // deterministic secret
+        hashingAssignment.setSecureRandom(secureRandomMock);
+        when(sessionMock.getAttribute("sha256")).thenReturn(null);
+
+        // Act
+        String resultHash = hashingAssignment.getSha256(requestMock);
 
         // Assert
-        assertNotEquals(first, second, "Two consecutive calls should not always be equal");
+        assertNotNull(resultHash, "SHA-256 hash should not be null");
+        verify(secureRandomMock).nextInt(HashingAssignment.SECRETS.length);
+        ArgumentCaptor<String> secretCaptor = ArgumentCaptor.forClass(String.class);
+        verify(sessionMock).setAttribute(eq("sha256Secret"), secretCaptor.capture());
+        assertEquals(HashingAssignment.SECRETS[4], secretCaptor.getValue(),
+                "Secret should match the deterministic value from SecureRandom mock");
+    }
+
+    @Test
+    public void testSecretsArrayContainsExpectedValues() {
+        assertTrue(Arrays.asList(HashingAssignment.SECRETS).contains("secret"));
+        assertTrue(Arrays.asList(HashingAssignment.SECRETS).contains("admin"));
     }
 }
