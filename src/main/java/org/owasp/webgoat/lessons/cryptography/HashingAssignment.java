@@ -37,8 +37,7 @@ public class HashingAssignment implements AssignmentEndpoint {
 
             String secret = SECRETS[getSecureRandomIndex(SECRETS.length)];
 
-            // Use SHA-256 instead of MD5 for stronger security
-            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            MessageDigest md = MessageDigest.getInstance("MD5");
             md.update(secret.getBytes());
             byte[] digest = md.digest();
             md5Hash = DatatypeConverter.printHexBinary(digest).toUpperCase();
@@ -89,9 +88,6 @@ public class HashingAssignment implements AssignmentEndpoint {
         return DatatypeConverter.printHexBinary(digest).toUpperCase();
     }
 
-    /**
-     * Generates a secure random index using SecureRandom.
-     */
     private static int getSecureRandomIndex(int bound) {
         SecureRandom secureRandom = new SecureRandom();
         return secureRandom.nextInt(bound);
