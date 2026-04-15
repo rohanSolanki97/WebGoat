@@ -11,7 +11,6 @@ import jakarta.servlet.http.HttpServletRequest;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
-import java.util.Random;
 import javax.xml.bind.DatatypeConverter;
 import org.owasp.webgoat.container.assignments.AssignmentEndpoint;
 import org.owasp.webgoat.container.assignments.AssignmentHints;
@@ -74,6 +73,8 @@ public class HashingAssignment implements AssignmentEndpoint {
     if (answer_pwd1 != null && answer_pwd2 != null) {
       if (answer_pwd1.equals(md5Secret) && answer_pwd2.equals(sha256Secret)) {
         return success(this).feedback("crypto-hashing.success").build();
+      } else if (answer_pwd1.equals(md5Secret) || answer_pwd2.equals(sha256Secret)) {
+        return failed(this).feedback("crypto-hashing.oneok").build();
       } else if (answer_pwd1.equals(md5Secret) || answer_pwd2.equals(sha256Secret)) {
         return failed(this).feedback("crypto-hashing.oneok").build();
       }
