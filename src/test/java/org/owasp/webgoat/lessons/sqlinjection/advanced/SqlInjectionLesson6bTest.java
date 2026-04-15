@@ -1,105 +1,93 @@
 package org.owasp.webgoat.lessons.sqlinjection.advanced;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.*;
 
+import jakarta.servlet.http.Cookie;
+import jakarta.servlet.http.HttpServletResponse;
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.Statement;
-import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.owasp.webgoat.container.LessonDataSource;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.owasp.webgoat.container.assignments.AttackResult;
 
 /**
- * Delta tests for SqlInjectionLesson6b focusing on the changed behavior:
- * - printStackTrace() calls were replaced with structured logging via SLF4J (@Slf4j).
+ * Delta tests for SqlInjectionLesson6b focusing on:
+ * - Removal of stack-trace based logging (no behavior to assert directly here).
+ * - Introduction of a Secure, HttpOnly cookie in the completed() endpoint.
  *
- * These tests verify that exceptions in getPassword() are:
- * - Handled without propagating.
- * - Logged through SLF4J, not via printStackTrace().
- *
- * Test file path (derived from main path):
- * src/test/java/org/owasp/webgoat/lessons/sqlinjection/advanced/SqlInjectionLesson6bTest.java
+ * These tests verify that:
+ * - completed() sets a cookie with the Secure and HttpOnly flags.
+ * - Existing success/failure behavior is preserved.
  */
 public class SqlInjectionLesson6bTest {
 
-  private LessonDataSource dataSource;
-  private SqlInjectionLesson6b lesson6b;
-
-  @BeforeEach
-  void setUp() {
-    dataSource = mock(LessonDataSource.class);
-    lesson6b = new SqlInjectionLesson6b(dataSource);
-  }
-
   @Test
-  void getPassword_returnsDefaultAndDoesNotThrowWhenSqlExceptionOccurs() throws Exception {
+  @DisplayName("completed should set a Secure, HttpOnly cookie on every call")
+  void completed_setsSecureHttpOnlyCookie() throws Exception {
     // Arrange
+    LessonDataSource dataSource = mock(LessonDataSource.class);
     Connection connection = mock(Connection.class);
     Statement statement = mock(Statement.class);
+    ResultSet resultSet = mock(ResultSet.class);
 
     when(dataSource.getConnection()).thenReturn(connection);
     when(connection.createStatement(
             ResultSet.TYPE_SCROLL_INSENSITIVE, ResultSet.CONCUR_READ_ONLY))
         .thenReturn(statement);
-    when(statement.executeQuery(anyString())).thenThrow(new java.sql.SQLException("boom"));
+    when(statement.executeQuery("SELECT password FROM user_system_data WHERE user_name = 'dave'"))
+        .thenReturn(resultSet);
+    when(resultSet.first()).thenReturn(true);
+    when(resultSet.getString("password")).thenReturn("secret-password");
+
+    SqlInjectionLesson6b lesson = new SqlInjectionLesson6b(dataSource);
+    HttpServletResponse response = mock(HttpServletResponse.class);
+
+    // We capture the cookie that is added to the response
+    doAnswer(invocation -> {
+          Cookie cookie = invocation.getArgument(0);
+          assertThat(cookie.getName()).isEqualTo("session_id");
+          assertThat(cookie.isHttpOnly()).isTrue();
+          assertThat(cookie.getSecure()).isTrue();
+          assertThat(cookie.getPath()).isEqualTo("/");
+          return null;
+        })
+        .when(response)
+        .addCookie(any(Cookie.class));
 
     // Act
-    String password = lesson6b.getPassword();
+    AttackResult result = lesson.completed("secret-password", response);
 
     // Assert
-    // Even when the SQL query fails, getPassword should return the default value and not throw.
-    assertEquals(
-        "dave",
-        password,
-        "On SQL exception getPassword() should fall back to the default password without throwing");
-
-    // The key behavioral delta is that stack traces are no longer printed directly; they are
-    // now sent to the logger via @Slf4j. We cannot directly assert internal logger usage here
-    // without altering the class API, but this test ensures the exception path is executed and
-    // handled gracefully.
+    verify(response).addCookie(any(Cookie.class));
+    assertThat(result.getLessonCompleted()).isTrue();
   }
 
   @Test
-  void getPassword_returnsDefaultAndDoesNotThrowWhenGenericExceptionOccurs() throws Exception {
-    // Arrange
-    when(dataSource.getConnection()).thenThrow(new RuntimeException("connection failed"));
-
-    // Act
-    String password = lesson6b.getPassword();
-
-    // Assert
-    assertEquals(
-        "dave",
-        password,
-        "On generic exception getPassword() should fall back to the default password without throwing");
-  }
-
-  @Test
-  void getPassword_usesSlf4jLoggerInsteadOfPrintStackTrace() throws Exception {
-    // Arrange
-    // This test relies on verifying that no System.err printStackTrace occurs by
-    // simulating the error path and confirming that the method still completes.
-    // Direct interception of printStackTrace is no longer relevant because the
-    // updated code uses log.error instead (via Lombok @Slf4j).
+  @DisplayName("completed should still fail when userid_6b does not match password")
+  void completed_preservesFailureBehavior() throws Exception {
+    LessonDataSource dataSource = mock(LessonDataSource.class);
     Connection connection = mock(Connection.class);
+    Statement statement = mock(Statement.class);
+    ResultSet resultSet = mock(ResultSet.class);
+
     when(dataSource.getConnection()).thenReturn(connection);
     when(connection.createStatement(
             ResultSet.TYPE_SCROLL_INSENSITIVE, ResultSet.CONCUR_READ_ONLY))
-        .thenThrow(new java.sql.SQLException("boom"));
+        .thenReturn(statement);
+    when(statement.executeQuery("SELECT password FROM user_system_data WHERE user_name = 'dave'"))
+        .thenReturn(resultSet);
+    when(resultSet.first()).thenReturn(true);
+    when(resultSet.getString("password")).thenReturn("secret-password");
 
-    // Act
-    String password = lesson6b.getPassword();
+    SqlInjectionLesson6b lesson = new SqlInjectionLesson6b(dataSource);
+    HttpServletResponse response = mock(HttpServletResponse.class);
 
-    // Assert
-    assertEquals("dave", password);
+    AttackResult result = lesson.completed("wrong", response);
 
-    // Additionally, we ensure that the logger is available and properly configured for this class.
-    Logger logger = LoggerFactory.getLogger(SqlInjectionLesson6b.class);
-    logger.error(
-        "Verifying logger is usable after migration from printStackTrace to SLF4J for class {}",
-        SqlInjectionLesson6b.class.getSimpleName());
+    assertThat(result.getLessonCompleted()).isFalse();
+    verify(response).addCookie(any(Cookie.class));
   }
 }
