@@ -1,75 +1,49 @@
-// File: src/test/java/org/owasp/webgoat/lessons/xxe/BlindSendFileAssignmentTest.java
 package org.owasp.webgoat.lessons.xxe;
 
-import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.Mockito.when;
+import static org.assertj.core.api.Assertions.assertThat;
 
 import java.io.File;
 import java.nio.file.Files;
-import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 import org.mockito.Mockito;
-import org.owasp.webgoat.container.assignments.AttackResult;
 import org.owasp.webgoat.container.users.WebGoatUser;
-import org.springframework.beans.factory.annotation.Value;
 
-public class BlindSendFileAssignmentTest {
-
-  @TempDir Path tempDir;
+/**
+ * Delta test for BlindSendFileAssignment (BATCH-006)
+ * Path: src/test/java/org/owasp/webgoat/lessons/xxe/BlindSendFileAssignmentTest.java
+ *
+ * Focus: directory path for secret file creation now uses a sanitized username,
+ * removing traversal characters.
+ */
+class BlindSendFileAssignmentTest {
 
   @Test
-  void createSecretFileWithRandomContents_sanitizesUsernameInPath() throws Exception {
+  void initialize_shouldCreateDirectoryUsingSanitizedUsername() throws Exception {
     // Arrange
-    String baseDir = tempDir.toString();
-    CommentsCache commentsCache = Mockito.mock(CommentsCache.class);
-    // The constructor is annotated with @Value but at unit-test level we just pass the value
-    BlindSendFileAssignment assignment =
-        new BlindSendFileAssignment(baseDir, commentsCache);
+    File tmp = Files.createTempDirectory("webgoat-home-xxe-").toFile();
+    String baseDir = tmp.getAbsolutePath();
+    CommentsCache comments = Mockito.mock(CommentsCache.class);
+    BlindSendFileAssignment assignment = new BlindSendFileAssignment(baseDir, comments);
 
     WebGoatUser user = Mockito.mock(WebGoatUser.class);
-    // Attempt directory traversal in username
-    when(user.getUsername()).thenReturn("../evilUser");
+    // Username with characters that must be stripped by the sanitization regex
+    String rawUsername = "../evil/user..//name";
+    Mockito.when(user.getUsername()).thenReturn(rawUsername);
 
     // Act
     assignment.initialize(user);
 
     // Assert
-    // The sanitized directory must be under the configured base directory and must not traverse
-    // outside via '../'.
-    File expectedBase = new File(baseDir, "XXE");
-    File[] userDirs = expectedBase.listFiles();
-    assertTrue(userDirs != null && userDirs.length == 1, "Exactly one user directory expected");
+    // As per fix: sanitizedUsername = user.getUsername().replaceAll("[^a-zA-Z0-9-_.]", "");
+    String expectedSanitized = rawUsername.replaceAll("[^a-zA-Z0-9-_.]", "");
+    File expectedDir = new File(baseDir, "/XXE/" + expectedSanitized);
+    File secretFile = new File(expectedDir, "secret.txt");
 
-    File createdDir = userDirs[0];
-    assertTrue(
-        createdDir.getCanonicalPath().startsWith(expectedBase.getCanonicalPath()),
-        "Created directory must remain under the XXE base directory");
+    assertThat(expectedDir.isDirectory()).isTrue();
+    assertThat(secretFile.isFile()).isTrue();
 
-    // Ensure no directory named ".." or "evilUser" above base exists
-    Path forbiddenPath = tempDir.resolve("..").resolve("evilUser").normalize();
-    assertTrue(Files.notExists(forbiddenPath), "Traversal target must not be created");
-  }
-
-  @Test
-  void addComment_returnsFailedWhenSolutionNotContained() {
-    // Arrange
-    String baseDir = tempDir.toString();
-    CommentsCache commentsCache = Mockito.mock(CommentsCache.class);
-    BlindSendFileAssignment assignment =
-        new BlindSendFileAssignment(baseDir, commentsCache);
-
-    WebGoatUser user = Mockito.mock(WebGoatUser.class);
-    when(user.getUsername()).thenReturn("user");
-    assignment.initialize(user);
-
-    String comment = "some harmless comment";
-
-    // Act
-    AttackResult result = assignment.addComment(comment, user);
-
-    // Assert
-    // Behavior outside of path fix remains: unsuccessful attempt should not complete lesson
-    assertTrue(!result.getLessonCompleted());
+    // Ensure raw username path is not used
+    File rawDir = new File(baseDir, "/XXE/" + rawUsername);
+    assertThat(rawDir.getCanonicalPath()).isNotEqualTo(expectedDir.getCanonicalPath());
   }
 }

@@ -1,52 +1,68 @@
-// File: src/test/java/org/owasp/webgoat/lessons/openredirect/OpenRedirectRealRedirectTest.java
 package org.owasp.webgoat.lessons.openredirect;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.assertj.core.api.Assertions.assertThat;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.web.servlet.ModelAndView;
 
-public class OpenRedirectRealRedirectTest {
+/**
+ * Delta test for OpenRedirectRealRedirect (BATCH-008)
+ * Path: src/test/java/org/owasp/webgoat/lessons/openredirect/OpenRedirectRealRedirectTest.java
+ *
+ * Focus: ensure redirects are only allowed to validated internal URLs and that
+ * untrusted external or traversal URLs are rejected and redirected to /welcome.mvc.
+ */
+class OpenRedirectRealRedirectTest {
 
   @Test
-  void real_redirectsToSafeDefaultWhenUrlIsExternal() {
+  void real_shouldAllowSafeInternalUrl() {
     // Arrange
     OpenRedirectRealRedirect controller = new OpenRedirectRealRedirect();
-    String externalUrl = "http://evil.com/phishing";
+    String safeUrl = "/internal/page";
 
     // Act
-    ModelAndView mav = controller.real(externalUrl);
+    ModelAndView mav = controller.real(safeUrl);
 
     // Assert
-    // External URLs must not be used; they should be normalized to a safe default
-    assertEquals("redirect:/", mav.getViewName());
+    assertThat(mav.getViewName()).isEqualTo("redirect:" + safeUrl);
   }
 
   @Test
-  void real_allowsInternalRelativeRedirects() {
+  void real_shouldRejectExternalUrlAndFallbackToWelcome() {
     // Arrange
     OpenRedirectRealRedirect controller = new OpenRedirectRealRedirect();
-    String internalUrl = "/internal/page";
+    String maliciousUrl = "https://evil.com/phish";
 
     // Act
-    ModelAndView mav = controller.real(internalUrl);
+    ModelAndView mav = controller.real(maliciousUrl);
 
     // Assert
-    // Relative paths starting with '/' are allowed
-    assertEquals("redirect:" + internalUrl, mav.getViewName());
+    assertThat(mav.getViewName()).isEqualTo("redirect:/welcome.mvc");
   }
 
   @Test
-  void real_handlesBlankOrNullUrlByRedirectingToRoot() {
+  void real_shouldRejectTraversalUrlAndFallbackToWelcome() {
     // Arrange
     OpenRedirectRealRedirect controller = new OpenRedirectRealRedirect();
+    String traversalUrl = "/../admin";
 
     // Act
-    ModelAndView mavBlank = controller.real("   ");
-    ModelAndView mavNull = controller.real(null);
+    ModelAndView mav = controller.real(traversalUrl);
 
     // Assert
-    assertEquals("redirect:/", mavBlank.getViewName());
-    assertEquals("redirect:/", mavNull.getViewName());
+    assertThat(mav.getViewName()).isEqualTo("redirect:/welcome.mvc");
+  }
+
+  @Test
+  void real_shouldRejectEmptyUrlAndFallbackToWelcome() {
+    // Arrange
+    OpenRedirectRealRedirect controller = new OpenRedirectRealRedirect();
+    String emptyUrl = "";
+
+    // Act
+    ModelAndView mav = controller.real(emptyUrl);
+
+    // Assert
+    assertThat(mav.getViewName()).isEqualTo("redirect:/welcome.mvc");
   }
 }

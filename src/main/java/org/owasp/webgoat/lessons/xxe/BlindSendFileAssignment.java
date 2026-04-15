@@ -17,7 +17,6 @@ import java.nio.file.Files;
 import java.util.HashMap;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.io.FilenameUtils;
 import org.owasp.webgoat.container.assignments.AssignmentEndpoint;
 import org.owasp.webgoat.container.assignments.AssignmentHints;
 import org.owasp.webgoat.container.assignments.AttackResult;
@@ -54,7 +53,8 @@ public class BlindSendFileAssignment implements AssignmentEndpoint, Initializabl
   private void createSecretFileWithRandomContents(WebGoatUser user) {
     var fileContents = "WebGoat 8.0 rocks... (" + randomAlphabetic(10) + ")";
     userToFileContents.put(user, fileContents);
-    String sanitizedUsername = FilenameUtils.getName(user.getUsername());
+    // Sanitize username to prevent path traversal when creating directory
+    String sanitizedUsername = user.getUsername().replaceAll("[^a-zA-Z0-9-_.]", "");
     File targetDirectory = new File(webGoatHomeDirectory, "/XXE/" + sanitizedUsername);
     if (!targetDirectory.exists()) {
       targetDirectory.mkdirs();

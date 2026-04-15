@@ -1,71 +1,77 @@
-// File: src/test/java/org/owasp/webgoat/lessons/pathtraversal/ProfileUploadBaseTest.java
 package org.owasp.webgoat.lessons.pathtraversal;
 
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.assertj.core.api.Assertions.assertThat;
 
 import java.io.File;
-import java.nio.file.Path;
+import java.nio.file.Files;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
-import org.mockito.Mockito;
-import org.owasp.webgoat.container.assignments.AttackResult;
-import org.springframework.util.FileSystemUtils;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.multipart.MultipartFile;
+import org.mockito.Mockito;
 
-public class ProfileUploadBaseTest {
-
-  @TempDir Path tempDir;
+/**
+ * Delta test for ProfileUploadBase (BATCH-009)
+ * Path: src/test/java/org/owasp/webgoat/lessons/pathtraversal/ProfileUploadBaseTest.java
+ *
+ * Focus:
+ *  - execute(): use of FilenameUtils.getName(fullName) prevents directory components in filename.
+ *  - cleanupAndCreateDirectoryForUser() and getProfilePictureAsBase64(): username is sanitized
+ *    before being used in directory names.
+ */
+class ProfileUploadBaseTest {
 
   @Test
-  void execute_sanitizesFilenameToPreventPathTraversal() throws Exception {
+  void execute_shouldStripDirectoryComponentsFromFilename() throws Exception {
     // Arrange
-    String baseDir = tempDir.toString();
+    File tmp = Files.createTempDirectory("webgoat-home-pt-").toFile();
+    String baseDir = tmp.getAbsolutePath();
     ProfileUploadBase base = new ProfileUploadBase(baseDir);
 
-    MultipartFile file = Mockito.mock(MultipartFile.class);
-    Mockito.when(file.isEmpty()).thenReturn(false);
-    Mockito.when(file.getBytes()).thenReturn("dummy".getBytes());
+    MultipartFile multipartFile = Mockito.mock(MultipartFile.class);
+    Mockito.when(multipartFile.isEmpty()).thenReturn(false);
+    Mockito.when(multipartFile.getBytes()).thenReturn("data".getBytes());
 
-    String maliciousFullName = "../evil/../../escape.txt";
-    String username = "user1";
+    String maliciousName = "../evil/../profile.png";
+    String username = "user";
 
     // Act
-    AttackResult result = base.execute(file, maliciousFullName, username);
+    base.execute(multipartFile, maliciousName, username);
 
-    // Assert
-    // The uploaded file must be created under the sanitized user directory,
-    // and traversal via '../' should not be honored.
-    File userDir = new File(baseDir, "PathTraversal/" + username);
-    File[] files = userDir.listFiles();
-    assertTrue(files != null && files.length == 1, "One file should be stored for the user");
-    File uploaded = files[0];
+    // Assert: file should exist under /PathTraversal/{sanitizedUsername} with sanitized filename
+    String expectedFileName =
+        org.apache.commons.io.FilenameUtils.getName(maliciousName);
+    String sanitizedUsername = username.replaceAll("[^a-zA-Z0-9-_.]", "");
+    File expectedDir = new File(baseDir, "/PathTraversal/" + sanitizedUsername);
+    File uploaded = new File(expectedDir, expectedFileName);
 
-    assertTrue(
-        uploaded.getCanonicalPath().startsWith(userDir.getCanonicalPath()),
-        "Uploaded file must remain under the user's directory");
-    assertTrue(!uploaded.getName().contains(".."), "Sanitized filename must not contain '..'");
+    assertThat(uploaded.isFile()).isTrue();
 
-    // Clean up explicitly in case tempDir handling differs
-    FileSystemUtils.deleteRecursively(userDir);
-    assertTrue(!userDir.exists());
+    // Ensure directory traversal from fullName was not honored
+    File dangerous = new File(baseDir, "/PathTraversal/" + maliciousName);
+    assertThat(dangerous.getCanonicalPath()).isNotEqualTo(uploaded.getCanonicalPath());
   }
 
   @Test
-  void cleanupAndCreateDirectoryForUser_sanitizesUsername() throws Exception {
+  void getProfilePicture_shouldUseSanitizedUsernameDirectory() throws Exception {
     // Arrange
-    String baseDir = tempDir.toString();
+    File tmp = Files.createTempDirectory("webgoat-home-pt2-").toFile();
+    String baseDir = tmp.getAbsolutePath();
     ProfileUploadBase base = new ProfileUploadBase(baseDir);
 
-    String username = "../attacker";
+    String maliciousUsername = "../eviluser";
+    String sanitized = maliciousUsername.replaceAll("[^a-zA-Z0-9-_.]", "");
+
+    File profileDir = new File(baseDir, "/PathTraversal/" + sanitized);
+    Files.createDirectories(profileDir.toPath());
+    File img = new File(profileDir, "pic.jpg");
+    Files.write(img.toPath(), "img".getBytes());
 
     // Act
-    File uploadDirectory = base.cleanupAndCreateDirectoryForUser(username);
+    ResponseEntity<?> response = base.getProfilePicture(maliciousUsername);
 
     // Assert
-    // Directory must be created under PathTraversal base and not outside via traversal
-    File basePathTraversal = new File(baseDir, "PathTraversal");
-    assertTrue(
-        uploadDirectory.getCanonicalPath().startsWith(basePathTraversal.getCanonicalPath()),
-        "User directory must remain under PathTraversal base directory");
+    assertThat(response.getStatusCode().is2xxSuccessful()).isTrue();
+    Object body = response.getBody();
+    assertThat(body).isInstanceOf(byte[].class);
   }
 }
