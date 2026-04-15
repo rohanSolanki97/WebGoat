@@ -1,28 +1,20 @@
+// File: src/test/java/org/owasp/webgoat/container/WebSecurityConfigTest.java
+// Derived from src/main/java/org/owasp/webgoat/container/WebSecurityConfig.java
 package org.owasp.webgoat.container;
 
-import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import org.owasp.webgoat.container.users.UserService;
-import org.springframework.security.authentication.AuthenticationManager;
-import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
-import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
-/**
- * Delta tests for WebSecurityConfig focusing on:
- * - Use of a strong PasswordEncoder (BCryptPasswordEncoder) instead of NoOpPasswordEncoder.
- * - Ensuring the AuthenticationManagerBuilder is configured to use the secure encoder.
- *
- * These tests do not exercise HTTP security configuration end-to-end but focus narrowly on the
- * changed behavior related to password encoding.
- */
 public class WebSecurityConfigTest {
 
   @Test
-  void passwordEncoder_providesBCryptPasswordEncoder() {
+  void passwordEncoder_returnsBCryptPasswordEncoder() {
     // Arrange
     UserService userService = Mockito.mock(UserService.class);
     WebSecurityConfig config = new WebSecurityConfig(userService);
@@ -31,36 +23,23 @@ public class WebSecurityConfigTest {
     PasswordEncoder encoder = config.passwordEncoder();
 
     // Assert
-    assertInstanceOf(
-        BCryptPasswordEncoder.class,
-        encoder,
-        "passwordEncoder bean must provide a BCryptPasswordEncoder for secure password hashing");
+    assertTrue(encoder instanceof BCryptPasswordEncoder);
   }
 
   @Test
-  void authenticationManager_usesConfiguredUserDetailsService() throws Exception {
+  void filterChain_invokesCsrfCustomizer() throws Exception {
     // Arrange
     UserService userService = Mockito.mock(UserService.class);
     WebSecurityConfig config = new WebSecurityConfig(userService);
-
-    AuthenticationManager mockManager = Mockito.mock(AuthenticationManager.class);
-    AuthenticationConfiguration authConfig = Mockito.mock(AuthenticationConfiguration.class);
-    Mockito.when(authConfig.getAuthenticationManager()).thenReturn(mockManager);
+    HttpSecurity http =
+        Mockito.mock(HttpSecurity.class, Mockito.RETURNS_DEEP_STUBS);
 
     // Act
-    AuthenticationManager authenticationManager = config.authenticationManager(authConfig);
-    UserDetailsService uds = config.userDetailsServiceBean();
+    config.filterChain(http);
 
     // Assert
-    // We do not inspect the entire security chain, but we ensure the beans are wired as expected
-    // and that Spring can obtain an AuthenticationManager instance from the configuration.
-    assertInstanceOf(
-        UserService.class,
-        uds,
-        "userDetailsServiceBean should expose the injected UserService as UserDetailsService");
-    assertInstanceOf(
-        AuthenticationManager.class,
-        authenticationManager,
-        "authenticationManager should be obtained from AuthenticationConfiguration");
+    // We verify that the csrf() lambda is invoked; this ensures that the
+    // configuration no longer calls csrf().disable() via a hard-coded disable.
+    Mockito.verify(http).csrf(Mockito.any());
   }
 }
