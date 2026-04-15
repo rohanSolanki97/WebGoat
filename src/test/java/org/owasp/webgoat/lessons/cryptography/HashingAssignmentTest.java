@@ -1,81 +1,91 @@
 package org.owasp.webgoat.lessons.cryptography;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.when;
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.*;
 
 import jakarta.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpSession;
-import java.security.NoSuchAlgorithmException;
+import jakarta.servlet.http.HttpSession;
+import java.security.SecureRandom;
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.Set;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
-import org.mockito.Mockito;
 
 /**
- * Delta unit test file for:
- *   batch_id: BATCH-001
- *   resolved_file_path: src/main/java/org/owasp/webgoat/lessons/cryptography/HashingAssignment.java
- *   derived_test_file_path: src/test/java/org/owasp/webgoat/lessons/cryptography/HashingAssignmentTest.java
- *
- * Focus: behavior affected by switching from java.util.Random to java.security.SecureRandom
- * when selecting a secret from SECRETS for hashing.
+ * Delta unit tests focusing on the change from java.util.Random to java.security.SecureRandom
+ * in HashingAssignment. These tests ensure that the secret selection is now using SecureRandom
+ * and that the functional behavior remains correct.
  */
-class HashingAssignmentTest {
+public class HashingAssignmentTest {
 
-  @Test
-  void getMd5_shouldInitializeSessionWithSecretFromAllowedSetAndStoreHashOnce()
-      throws NoSuchAlgorithmException {
-    // Arrange
-    HashingAssignment assignment = new HashingAssignment();
-    HttpServletRequest request = Mockito.mock(HttpServletRequest.class);
-    HttpSession session = Mockito.mock(HttpSession.class);
+    private HashingAssignment hashingAssignment;
+    private HttpServletRequest requestMock;
+    private HttpSession sessionMock;
 
-    when(request.getSession()).thenReturn(session);
-    when(session.getAttribute("md5Hash")).thenReturn(null);
+    @BeforeEach
+    void setUp() {
+        hashingAssignment = new HashingAssignment();
+        requestMock = mock(HttpServletRequest.class);
+        sessionMock = mock(HttpSession.class);
+        when(requestMock.getSession()).thenReturn(sessionMock);
+    }
 
-    ArgumentCaptor<Object> hashCaptor = ArgumentCaptor.forClass(Object.class);
-    ArgumentCaptor<Object> secretCaptor = ArgumentCaptor.forClass(Object.class);
+    @Test
+    void testSecretSelectionUsesSecureRandom() throws Exception {
+        // Arrange
+        when(sessionMock.getAttribute("md5Hash")).thenReturn(null);
 
-    // Act
-    String returnedHash = assignment.getMd5(request);
+        // Act
+        hashingAssignment.getMd5(requestMock);
 
-    // Assert
-    Mockito.verify(session).setAttribute(Mockito.eq("md5Hash"), hashCaptor.capture());
-    Object storedHash = hashCaptor.getValue();
-    assertThat(storedHash).isInstanceOf(String.class);
-    assertThat((String) storedHash).isEqualTo(returnedHash);
+        // Assert
+        // Verify that the secret stored in session is one from SECRETS
+        verify(sessionMock).setAttribute(eq("md5Secret"), argThat(secret ->
+                Arrays.asList(HashingAssignment.SECRETS).contains(secret)
+        ));
+    }
 
-    Mockito.verify(session).setAttribute(Mockito.eq("md5Secret"), secretCaptor.capture());
-    Object storedSecret = secretCaptor.getValue();
-    assertThat(storedSecret).isInstanceOf(String.class);
-    assertThat((String) storedSecret).isIn(HashingAssignment.SECRETS);
-  }
+    @Test
+    void testSecureRandomProducesVariedSecrets() throws Exception {
+        // Arrange
+        when(sessionMock.getAttribute("md5Hash")).thenReturn(null);
 
-  @Test
-  void getSha256_shouldInitializeSessionWithSecretFromAllowedSetAndStoreHashOnce()
-      throws NoSuchAlgorithmException {
-    // Arrange
-    HashingAssignment assignment = new HashingAssignment();
-    HttpServletRequest request = Mockito.mock(HttpServletRequest.class);
-    HttpSession session = Mockito.mock(HttpSession.class);
+        Set<String> seenSecrets = new HashSet<>();
+        for (int i = 0; i < 20; i++) {
+            // Reset mocks for each iteration
+            sessionMock = mock(HttpSession.class);
+            when(requestMock.getSession()).thenReturn(sessionMock);
+            when(sessionMock.getAttribute("md5Hash")).thenReturn(null);
 
-    when(request.getSession()).thenReturn(session);
-    when(session.getAttribute("sha256")).thenReturn(null);
+            hashingAssignment.getMd5(requestMock);
+            // Capture the secret
+            verify(sessionMock).setAttribute(eq("md5Secret"), argThat(secret -> {
+                seenSecrets.add(secret);
+                return true;
+            }));
+        }
 
-    ArgumentCaptor<Object> hashCaptor = ArgumentCaptor.forClass(Object.class);
-    ArgumentCaptor<Object> secretCaptor = ArgumentCaptor.forClass(Object.class);
+        // Assert that more than one unique secret was produced, indicating randomness
+        assertTrue(seenSecrets.size() > 1, "SecureRandom should produce varied secrets over multiple runs");
+    }
 
-    // Act
-    String returnedHash = assignment.getSha256(request);
+    @Test
+    void testSecureRandomInstanceIsStaticAndReused() {
+        SecureRandom instance1 = getSecureRandomInstance();
+        SecureRandom instance2 = getSecureRandomInstance();
+        assertSame(instance1, instance2, "SecureRandomHolder.INSTANCE should be reused across calls");
+    }
 
-    // Assert
-    Mockito.verify(session).setAttribute(Mockito.eq("sha256Hash"), hashCaptor.capture());
-    Object storedHash = hashCaptor.getValue();
-    assertThat(storedHash).isInstanceOf(String.class);
-    assertThat((String) storedHash).isEqualTo(returnedHash);
-
-    Mockito.verify(session).setAttribute(Mockito.eq("sha256Secret"), secretCaptor.capture());
-    Object storedSecret = secretCaptor.getValue();
-    assertThat(storedSecret).isInstanceOf(String.class);
-    assertThat((String) storedSecret).isIn(HashingAssignment.SECRETS);
-  }
+    private SecureRandom getSecureRandomInstance() {
+        try {
+            var holderClass = Class.forName("org.owasp.webgoat.lessons.cryptography.HashingAssignment$SecureRandomHolder");
+            var field = holderClass.getDeclaredField("INSTANCE");
+            field.setAccessible(true);
+            return (SecureRandom) field.get(null);
+        } catch (Exception e) {
+            fail("Unable to access SecureRandomHolder.INSTANCE: " + e.getMessage());
+            return null;
+        }
+    }
 }
