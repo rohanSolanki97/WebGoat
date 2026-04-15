@@ -1,81 +1,81 @@
-// File: src/test/resources/webgoat/static/js/goatApp/model/LessonContentModel.test.js
+const { JSDOM } = require('jsdom');
+const path = require('path');
+const fs = require('fs');
 
-// NOTE: This Jest test assumes that the AMD module is bundled in a way that allows requiring it
-// via the same path relative to the test environment. Adjust the require path if your bundler
-// exposes AMD modules differently.
-
-const _ = require('underscore');
-const Backbone = require('backbone');
-
-// We mock the HTMLContentModel dependency to isolate behavior in LessonContentModel.
-jest.mock('goatApp/model/HTMLContentModel', () => {
-  const Base = Backbone.Model.extend({});
-  return Base;
-});
-
-// Import the updated module under test via the same path used in production bundling.
-// In a typical Jest + bundler setup, this would resolve to the transpiled version.
-const LessonContentModel = require('webgoat/static/js/goatApp/model/LessonContentModel');
-
-describe('LessonContentModel delta tests (regex and URL handling)', () => {
-  let model;
-  let originalUrl;
+describe('LessonContentModel delta tests', () => {
+  let window;
+  let document;
+  let Backbone;
+  let LessonContentModel;
 
   beforeEach(() => {
-    // Preserve and stub document.URL
-    originalUrl = global.document && global.document.URL;
-    if (!global.document) {
-      global.document = {};
-    }
-    model = new LessonContentModel();
-  });
+    const dom = new JSDOM('<!doctype html><html><head></head><body></body></html>', {
+      url: 'http://localhost/Intro.lesson/3',
+    });
+    window = dom.window;
+    document = window.document;
 
-  afterEach(() => {
-    // Restore document.URL
-    if (typeof originalUrl !== 'undefined') {
-      global.document.URL = originalUrl;
-    }
-  });
+    const $ = require('jquery')(window);
+    window.$ = $;
+    window.jQuery = $;
 
-  test('setContent should correctly derive lessonUrl and pageNum for normal URLs', () => {
-    // Arrange: typical lesson URL with page number
-    global.document.URL =
-      'http://localhost:8080/WebGoat/Lesson.lesson/12?foo=bar';
+    Backbone = require('backbone');
+    Backbone.$ = $;
+    window.Backbone = Backbone;
 
-    // Act
-    model.setContent('<h1>Lesson</h1>');
+    // Minimal HTMLContentModel stub to satisfy dependency
+    function HTMLContentModel() {}
+    HTMLContentModel.extend = Backbone.Model.extend;
+    window.HTMLContentModel = HTMLContentModel;
 
-    // Assert: new behavior still preserves semantics
-    expect(model.get('lessonUrl')).toBe(
-      'http://localhost:8080/WebGoat/Lesson.lesson'
+    // Load the fixed LessonContentModel.js as an AMD-style module
+    const modulePath = path.resolve(
+      __dirname,
+      '../../../../main/resources/webgoat/static/js/goatApp/model/LessonContentModel.js'
     );
-    expect(model.get('pageNum')).toBe('12');
+    const src = fs.readFileSync(modulePath, 'utf8');
+
+    // Provide a minimal AMD define implementation for this test context
+    window._ = {};
+    window.define = function (deps, factory) {
+      LessonContentModel = factory(window.$, window._, window.Backbone, window.HTMLContentModel);
+    };
+
+    // eslint-disable-next-line no-eval
+    window.eval(src);
   });
 
-  test('setContent should default pageNum to 0 when URL does not match page pattern', () => {
-    // Arrange: lesson URL without trailing page number
-    global.document.URL = 'http://localhost:8080/WebGoat/Lesson.lesson';
+  test('setContent_computesLessonUrlByTruncatingAtDotLesson', () => {
+    // Arrange
+    const model = new LessonContentModel();
+    const content = '<html></html>';
 
     // Act
-    model.setContent('<h1>Lesson</h1>');
+    model.setContent(content, true);
+    const lessonUrl = model.get('lessonUrl');
 
     // Assert
-    expect(model.get('lessonUrl')).toBe(
-      'http://localhost:8080/WebGoat/Lesson.lesson'
-    );
-    expect(model.get('pageNum')).toBe(0);
+    // For URL http://localhost/Intro.lesson/3, lessonUrl should be truncated to include .lesson
+    expect(lessonUrl).toBe('http://localhost/Intro.lesson');
   });
 
-  test('setContent should guard against excessively long URLs (ReDoS mitigation)', () => {
-    // Arrange: simulate an extremely long URL that would previously be passed directly to regex
-    const veryLong = 'http://example.com/' + 'a'.repeat(5000) + '.lesson/99';
-    global.document.URL = veryLong;
+  test('setContent_setsPageNumFromTrailingIntegerOrZeroWhenInvalid', () => {
+    const model = new LessonContentModel();
+    const content = '<html></html>';
 
-    // Act
-    model.setContent('<h1>Lesson</h1>');
+    // Case 1: valid page number in URL
+    window.document.defaultView.location.href = 'http://localhost/Intro.lesson/7';
+    model.setContent(content, true);
+    expect(model.get('pageNum')).toBe(7);
 
-    // Assert: defensive behavior for long URLs
-    expect(model.get('lessonUrl')).toBe('');
+    // Case 2: invalid (non-numeric) suffix -> pageNum should be 0
+    window.document.defaultView.location.href = 'http://localhost/Intro.lesson/not-a-number';
+    model.setContent(content, true);
+    expect(model.get('pageNum')).toBe(0);
+
+    // Case 3: large number outside expected range -> defaults to 0
+    window.document.defaultView.location.href = 'http://localhost/Intro.lesson/12345';
+    model.setContent(content, true);
     expect(model.get('pageNum')).toBe(0);
   });
 });
