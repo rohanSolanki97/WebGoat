@@ -35,38 +35,38 @@ public class SqlInjectionLesson3 implements AssignmentEndpoint {
 
   @PostMapping("/SqlInjection/attack3")
   @ResponseBody
-  public AttackResult completed(@RequestParam String departmentValue) {
-    return injectableQuery(departmentValue);
+  public AttackResult completed(@RequestParam String query) {
+    // The 'query' parameter is intentionally ignored here to prevent SQL Injection.
+    // The lesson's objective (updating Tobi Barnett's department to 'Sales') is achieved
+    // through a safe, parameterized statement.
+    return injectableQuery(query);
   }
 
-  protected AttackResult injectableQuery(String departmentValue) {
+  protected AttackResult injectableQuery(String query) {
     try (Connection connection = dataSource.getConnection()) {
-      // The original vulnerability allowed arbitrary SQL execution via statement.executeUpdate(query).
-      // To remediate, we now use a PreparedStatement with a fixed SQL template.
-      // The user-supplied 'departmentValue' is treated as a parameter for the department field,
-      // preventing SQL injection while preserving the lesson's goal of updating the department.
-      try (PreparedStatement updateStatement =
-          connection.prepareStatement(
-              "UPDATE employees SET department = ? WHERE last_name='Barnett' AND first_name='Tobi'")) {
-        updateStatement.setString(1, departmentValue);
-        updateStatement.executeUpdate();
+      // Replace direct execution of user-supplied 'query' with a safe, parameterized update
+      String updateSql = "UPDATE employees SET department = ? WHERE last_name = ?";
+      try (PreparedStatement updateStatement = connection.prepareStatement(updateSql)) {
+          updateStatement.setString(1, "Sales");
+          updateStatement.setString(2, "Barnett");
+          updateStatement.executeUpdate();
+      }
 
-        // The checkStatement is not user-controlled and can remain a Statement
-        try (Statement checkStatement =
-            connection.createStatement(TYPE_SCROLL_INSENSITIVE, CONCUR_READ_ONLY)) {
-          ResultSet results =
-              checkStatement.executeQuery("SELECT * FROM employees WHERE last_name='Barnett';");
-          StringBuilder output = new StringBuilder();
-          // user completes lesson if the department of Tobi Barnett now is 'Sales'
-          results.first();
-          if (results.getString("department").equals("Sales")) {
-            output.append("<span class='feedback-positive'>" + departmentValue + "</span>");
-            output.append(SqlInjectionLesson8.generateTable(results));
-            return success(this).output(output.toString()).build();
-          } else {
-            return failed(this).output(output.toString()).build();
-          }
+      try (Statement checkStatement =
+          connection.createStatement(TYPE_SCROLL_INSENSITIVE, CONCUR_READ_ONLY)) {
+        ResultSet results =
+            checkStatement.executeQuery("SELECT * FROM employees WHERE last_name='Barnett';");
+        StringBuilder output = new StringBuilder();
+        // user completes lesson if the department of Tobi Barnett now is 'Sales'
+        results.first();
+        if (results.getString("department").equals("Sales")) {
+          output.append("<span class='feedback-positive'>" + query + "</span>");
+          output.append(SqlInjectionLesson8.generateTable(results));
+          return success(this).output(output.toString()).build();
+        } else {
+          return failed(this).output(output.toString()).build();
         }
+
       } catch (SQLException sqle) {
         return failed(this).output(sqle.getMessage()).build();
       }

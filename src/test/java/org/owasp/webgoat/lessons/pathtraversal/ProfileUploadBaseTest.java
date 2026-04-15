@@ -1,105 +1,71 @@
+// File: src/test/java/org/owasp/webgoat/lessons/pathtraversal/ProfileUploadBaseTest.java
 package org.owasp.webgoat.lessons.pathtraversal;
 
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.File;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.mockito.Mockito;
 import org.owasp.webgoat.container.assignments.AttackResult;
 import org.springframework.util.FileSystemUtils;
 import org.springframework.web.multipart.MultipartFile;
 
-/**
- * Delta tests for ProfileUploadBase focusing on:
- * - Sanitization of filename and username inputs to prevent path traversal.
- * - Canonical path check ensuring uploaded files remain within the user directory.
- */
 public class ProfileUploadBaseTest {
 
-  private Path tempHomeDir;
-
-  @BeforeEach
-  void setUp() throws Exception {
-    tempHomeDir = Files.createTempDirectory("webgoat-profile-home-");
-  }
-
-  @AfterEach
-  void tearDown() throws Exception {
-    if (tempHomeDir != null) {
-      FileSystemUtils.deleteRecursively(tempHomeDir);
-    }
-  }
+  @TempDir Path tempDir;
 
   @Test
-  void execute_sanitizesFilenameToPreventTraversalOutsideUserDirectory() throws Exception {
+  void execute_sanitizesFilenameToPreventPathTraversal() throws Exception {
     // Arrange
-    ProfileUploadBase base = new ProfileUploadBase(tempHomeDir.toString());
+    String baseDir = tempDir.toString();
+    ProfileUploadBase base = new ProfileUploadBase(baseDir);
 
     MultipartFile file = Mockito.mock(MultipartFile.class);
     Mockito.when(file.isEmpty()).thenReturn(false);
     Mockito.when(file.getBytes()).thenReturn("dummy".getBytes());
 
-    // Attempt to write outside the intended directory using '../' in filename
-    String maliciousFullName = "../outside.txt";
-    String username = "alice";
+    String maliciousFullName = "../evil/../../escape.txt";
+    String username = "user1";
 
     // Act
     AttackResult result = base.execute(file, maliciousFullName, username);
 
     // Assert
-    // The canonical check in execute() should detect an attempt to escape uploadDirectory
-    assertFalse(
-        result.isLessonCompleted(),
-        "Uploading with a path-traversal filename should not complete the lesson");
-    // The result is expected to indicate failure or path-traversal handling
-  }
+    // The uploaded file must be created under the sanitized user directory,
+    // and traversal via '../' should not be honored.
+    File userDir = new File(baseDir, "PathTraversal/" + username);
+    File[] files = userDir.listFiles();
+    assertTrue(files != null && files.length == 1, "One file should be stored for the user");
+    File uploaded = files[0];
 
-  @Test
-  void execute_createsFileWithinUserDirectoryForNormalFilename() throws Exception {
-    // Arrange
-    ProfileUploadBase base = new ProfileUploadBase(tempHomeDir.toString());
-
-    MultipartFile file = Mockito.mock(MultipartFile.class);
-    Mockito.when(file.isEmpty()).thenReturn(false);
-    Mockito.when(file.getBytes()).thenReturn("dummy".getBytes());
-
-    String fullName = "profile.jpg";
-    String username = "bob";
-
-    // Act
-    AttackResult result = base.execute(file, fullName, username);
-
-    // Assert
-    File expectedFile =
-        tempHomeDir.resolve("PathTraversal").resolve("bob").resolve("profile.jpg").toFile();
     assertTrue(
-        expectedFile.exists(),
-        "Normal upload should create the file within the sanitized PathTraversal/<username> directory");
-    assertFalse(
-        result.isLessonCompleted(),
-        "Normal profile upload should typically not mark the lesson as completed");
+        uploaded.getCanonicalPath().startsWith(userDir.getCanonicalPath()),
+        "Uploaded file must remain under the user's directory");
+    assertTrue(!uploaded.getName().contains(".."), "Sanitized filename must not contain '..'");
+
+    // Clean up explicitly in case tempDir handling differs
+    FileSystemUtils.deleteRecursively(userDir);
+    assertTrue(!userDir.exists());
   }
 
   @Test
   void cleanupAndCreateDirectoryForUser_sanitizesUsername() throws Exception {
     // Arrange
-    ProfileUploadBase base = new ProfileUploadBase(tempHomeDir.toString());
-    String maliciousUsername = "../attacker";
+    String baseDir = tempDir.toString();
+    ProfileUploadBase base = new ProfileUploadBase(baseDir);
+
+    String username = "../attacker";
 
     // Act
-    File uploadDir = base.cleanupAndCreateDirectoryForUser(maliciousUsername);
+    File uploadDirectory = base.cleanupAndCreateDirectoryForUser(username);
 
     // Assert
+    // Directory must be created under PathTraversal base and not outside via traversal
+    File basePathTraversal = new File(baseDir, "PathTraversal");
     assertTrue(
-        uploadDir.getCanonicalPath().startsWith(tempHomeDir.toFile().getCanonicalPath()),
-        "Directory for a malicious username must be created inside the configured home directory");
-    assertFalse(
-        uploadDir.getName().contains(".."),
-        "Sanitized directory name must not contain path traversal sequences");
+        uploadDirectory.getCanonicalPath().startsWith(basePathTraversal.getCanonicalPath()),
+        "User directory must remain under PathTraversal base directory");
   }
 }

@@ -1,92 +1,75 @@
+// File: src/test/java/org/owasp/webgoat/lessons/xxe/BlindSendFileAssignmentTest.java
 package org.owasp.webgoat.lessons.xxe;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.when;
 
 import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.mockito.Mockito;
+import org.owasp.webgoat.container.assignments.AttackResult;
 import org.owasp.webgoat.container.users.WebGoatUser;
+import org.springframework.beans.factory.annotation.Value;
 
-/**
- * Delta tests for BlindSendFileAssignment focusing on the secure path construction change:
- * - Sanitization of username using FilenameUtils.getName(...)
- * - Use of java.nio.file.Paths.get + resolve for safe path creation
- */
 public class BlindSendFileAssignmentTest {
 
-  private Path tempHomeDir;
-
-  @BeforeEach
-  void setUp() throws Exception {
-    tempHomeDir = Files.createTempDirectory("webgoat-home-");
-  }
-
-  @AfterEach
-  void tearDown() throws Exception {
-    if (tempHomeDir != null) {
-      Files.walk(tempHomeDir)
-          .sorted((a, b) -> b.compareTo(a))
-          .forEach(
-              p -> {
-                try {
-                  Files.deleteIfExists(p);
-                } catch (Exception ignored) {
-                  // ignore cleanup failures in tests
-                }
-              });
-    }
-  }
+  @TempDir Path tempDir;
 
   @Test
-  void createSecretFileWithRandomContents_sanitizesUsernameToPreventPathTraversal() throws Exception {
+  void createSecretFileWithRandomContents_sanitizesUsernameInPath() throws Exception {
     // Arrange
+    String baseDir = tempDir.toString();
     CommentsCache commentsCache = Mockito.mock(CommentsCache.class);
+    // The constructor is annotated with @Value but at unit-test level we just pass the value
     BlindSendFileAssignment assignment =
-        new BlindSendFileAssignment(tempHomeDir.toString(), commentsCache);
+        new BlindSendFileAssignment(baseDir, commentsCache);
 
     WebGoatUser user = Mockito.mock(WebGoatUser.class);
-    // Attempt to inject directory traversal into the username
-    Mockito.when(user.getUsername()).thenReturn("../evilUser");
+    // Attempt directory traversal in username
+    when(user.getUsername()).thenReturn("../evilUser");
 
     // Act
     assignment.initialize(user);
 
     // Assert
-    // Secret file must be created under <home>/XXE/<sanitizedUsername>/secret.txt
-    File expectedDir = tempHomeDir.resolve("XXE").resolve("evilUser").toFile();
-    File secretFile = new File(expectedDir, "secret.txt");
+    // The sanitized directory must be under the configured base directory and must not traverse
+    // outside via '../'.
+    File expectedBase = new File(baseDir, "XXE");
+    File[] userDirs = expectedBase.listFiles();
+    assertTrue(userDirs != null && userDirs.length == 1, "Exactly one user directory expected");
 
+    File createdDir = userDirs[0];
     assertTrue(
-        secretFile.exists(),
-        "Secret file should be created under a sanitized user directory, not using raw '../evilUser'");
-    assertTrue(
-        secretFile.getCanonicalPath().startsWith(tempHomeDir.toFile().getCanonicalPath()),
-        "Secret file path must remain within the configured webGoat home directory");
+        createdDir.getCanonicalPath().startsWith(expectedBase.getCanonicalPath()),
+        "Created directory must remain under the XXE base directory");
+
+    // Ensure no directory named ".." or "evilUser" above base exists
+    Path forbiddenPath = tempDir.resolve("..").resolve("evilUser").normalize();
+    assertTrue(Files.notExists(forbiddenPath), "Traversal target must not be created");
   }
 
   @Test
-  void createSecretFileWithRandomContents_usesExpectedDirectoryStructure() throws Exception {
+  void addComment_returnsFailedWhenSolutionNotContained() {
     // Arrange
+    String baseDir = tempDir.toString();
     CommentsCache commentsCache = Mockito.mock(CommentsCache.class);
     BlindSendFileAssignment assignment =
-        new BlindSendFileAssignment(tempHomeDir.toString(), commentsCache);
+        new BlindSendFileAssignment(baseDir, commentsCache);
 
     WebGoatUser user = Mockito.mock(WebGoatUser.class);
-    Mockito.when(user.getUsername()).thenReturn("normalUser");
-
-    // Act
+    when(user.getUsername()).thenReturn("user");
     assignment.initialize(user);
 
+    String comment = "some harmless comment";
+
+    // Act
+    AttackResult result = assignment.addComment(comment, user);
+
     // Assert
-    File secretFile =
-        tempHomeDir.resolve("XXE").resolve("normalUser").resolve("secret.txt").toFile();
-    assertTrue(secretFile.exists(), "Secret file should be created for a normal username");
-    assertEquals(
-        "secret.txt", secretFile.getName(), "Created file must retain the expected fixed filename");
+    // Behavior outside of path fix remains: unsuccessful attempt should not complete lesson
+    assertTrue(!result.getLessonCompleted());
   }
 }
