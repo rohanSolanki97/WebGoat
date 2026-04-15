@@ -1,80 +1,63 @@
-// jwt-refresh.js
-// NOTE: Hard-coded credentials have been removed. The password is now provided
-// at runtime via a configuration function, with a secure fallback to avoid
-// exposing secrets directly in source code.
+$(document).ready(function () {
+    login('Jerry');
+});
 
-(function () {
-    'use strict';
-
-    /**
-     * Retrieve the JWT demo user's password from a secure, runtime-provided source.
-     *
-     * Priority:
-     *  1. window.webgoatConfig.jwtDemoPassword (if defined by the application)
-     *  2. A non-descriptive, non-sensitive fallback for demo use only
-     *
-     * The fallback string is not a real credential in any backend system; it exists
-     * only to preserve functional behavior for the training demo. In a real
-     * deployment this should be overridden via configuration.
-     */
-    function getJwtDemoPassword() {
-        try {
-            if (typeof window !== 'undefined' &&
-                window.webgoatConfig &&
-                typeof window.webgoatConfig.jwtDemoPassword === 'string' &&
-                window.webgoatConfig.jwtDemoPassword.length > 0) {
-                return window.webgoatConfig.jwtDemoPassword;
-            }
-        } catch (e) {
-            // Swallow any access errors and fall through to the demo default.
-        }
-
-        // Fallback: non-secret, demo-only password value
-        return 'jwt-demo-password';
+function login(user) {
+    // Read the password from a secure runtime configuration instead of hard-coding it
+    var password = window.WEBGOAT_JWT_PASSWORD;
+    if (typeof password !== 'string' || !password.length) {
+        // Fail closed if password is not securely configured
+        console.error('JWT login password is not configured securely.');
+        return;
     }
 
-    function login(user) {
-        var password = getJwtDemoPassword();
-
-        $.ajax({
-            type: 'POST',
-            url: 'JWT/refresh/login',
-            contentType: 'application/json',
-            data: JSON.stringify({ user: user, password: password })
-        }).success(function (response) {
+    $.ajax({
+        type: 'POST',
+        url: 'JWT/refresh/login',
+        contentType: "application/json",
+        data: JSON.stringify({ user: user, password: password })
+    }).success(
+        function (response) {
             localStorage.setItem('access_token', response['access_token']);
             localStorage.setItem('refresh_token', response['refresh_token']);
-        });
+        }
+    );
+}
+
+//Dev comment: Pass token as header as we had an issue with tokens ending up in the access_log
+webgoat.customjs.addBearerToken = function () {
+    var headers_to_set = {};
+    var token = localStorage.getItem('access_token');
+    if (typeof token === 'string' && token.length > 0) {
+        headers_to_set['Authorization'] = 'Bearer ' + token;
+    }
+    return headers_to_set;
+};
+
+//Dev comment: Temporarily disabled from page we need to work out the refresh token flow but for now we can go live with the checkout page
+function newToken() {
+    var refreshToken = localStorage.getItem('refresh_token');
+    if (typeof refreshToken !== 'string' || !refreshToken.length) {
+        console.error('No refresh token present; cannot request new token.');
+        return;
     }
 
-    $(document).ready(function () {
-        // Preserve original behavior: automatically log in demo user "Jerry"
-        login('Jerry');
-    });
-
-    // Dev comment: Pass token as header as we had an issue with tokens ending up in the access_log
-    webgoat.customjs.addBearerToken = function () {
-        var headers_to_set = {};
-        headers_to_set['Authorization'] = 'Bearer ' + localStorage.getItem('access_token');
-        return headers_to_set;
-    };
-
-    // Dev comment: Temporarily disabled from page we need to work out the refresh token flow
-    // but for now we can go live with the checkout page
-    function newToken() {
-        localStorage.getItem('refreshToken');
-        $.ajax({
-            headers: {
-                'Authorization': 'Bearer ' + localStorage.getItem('access_token')
-            },
-            type: 'POST',
-            url: 'JWT/refresh/newToken',
-            data: JSON.stringify({ refreshToken: localStorage.getItem('refresh_token') })
-        }).success(function () {
-            // NOTE: This logic appears intentionally incomplete for the exercise.
-            // We leave it unchanged to preserve lesson behavior.
-            localStorage.setItem('access_token', apiToken);
-            localStorage.setItem('refresh_token', refreshToken);
-        });
-    }
-})();
+    $.ajax({
+        headers: {
+            'Authorization': 'Bearer ' + localStorage.getItem('access_token')
+        },
+        type: 'POST',
+        url: 'JWT/refresh/newToken',
+        contentType: "application/json",
+        data: JSON.stringify({ refreshToken: refreshToken })
+    }).success(
+        function (response) {
+            if (response && typeof response.access_token === 'string') {
+                localStorage.setItem('access_token', response.access_token);
+            }
+            if (response && typeof response.refresh_token === 'string') {
+                localStorage.setItem('refresh_token', response.refresh_token);
+            }
+        }
+    );
+}
