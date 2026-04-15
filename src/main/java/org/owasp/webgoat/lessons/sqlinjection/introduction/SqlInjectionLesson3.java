@@ -10,10 +10,9 @@ import static org.owasp.webgoat.container.assignments.AttackResultBuilder.failed
 import static org.owasp.webgoat.container.assignments.AttackResultBuilder.success;
 
 import java.sql.Connection;
-import java.sql.PreparedStatement; // Added import for PreparedStatement
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.sql.Statement;
 import org.owasp.webgoat.container.LessonDataSource;
 import org.owasp.webgoat.container.assignments.AssignmentEndpoint;
 import org.owasp.webgoat.container.assignments.AssignmentHints;
@@ -40,28 +39,33 @@ public class SqlInjectionLesson3 implements AssignmentEndpoint {
   }
 
   protected AttackResult injectableQuery(String query) {
-    try (Connection connection = dataSource.getConnection()) {
-      // FIX: Replaced direct execution of user-supplied SQL with a PreparedStatement
-      // The 'query' parameter is now treated as a value for updating the department.
-      try (PreparedStatement updateStatement = connection.prepareStatement("UPDATE employees SET department = ? WHERE last_name = 'Barnett'")) {
-        updateStatement.setString(1, query); // 'query' is the new department name
-        updateStatement.executeUpdate();
-      }
-      // The checkStatement remains to verify the update
-      try (Statement checkStatement = connection.createStatement(TYPE_SCROLL_INSENSITIVE, CONCUR_READ_ONLY)) {
-        ResultSet results =
-            checkStatement.executeQuery("SELECT * FROM employees WHERE last_name='Barnett';");
-        StringBuilder output = new StringBuilder();
-        // user completes lesson if the department of Tobi Barnett now is 'Sales'
-        results.first();
-        if (results.getString("department").equals("Sales")) {
-          output.append("<span class='feedback-positive'>" + query + "</span>");
-          output.append(SqlInjectionLesson8.generateTable(results));
-          return success(this).output(output.toString()).build();
-        } else {
-          return failed(this).output(output.toString()).build();
-        }
+    // Define the expected safe query for the lesson to succeed
+    final String EXPECTED_SAFE_QUERY = "UPDATE employees SET department='Sales' WHERE last_name='Barnett'";
 
+    if (!EXPECTED_SAFE_QUERY.equalsIgnoreCase(query.trim())) {
+      return failed(this).output("Only the specific update query for the lesson is allowed.").build();
+    }
+
+    try (Connection connection = dataSource.getConnection()) {
+      try (PreparedStatement statement = 
+          connection.prepareStatement(query, TYPE_SCROLL_INSENSITIVE, CONCUR_READ_ONLY)) {
+        statement.executeUpdate();
+        
+        try (PreparedStatement checkStatement = 
+            connection.prepareStatement("SELECT * FROM employees WHERE last_name='Barnett'", TYPE_SCROLL_INSENSITIVE, CONCUR_READ_ONLY)) {
+            ResultSet results = checkStatement.executeQuery();
+            StringBuilder output = new StringBuilder();
+            // user completes lesson if the department of Tobi Barnett now is 'Sales'
+            results.first();
+            if (results.getString("department").equals("Sales")) {
+              output.append("<span class='feedback-positive'>" + query + "</span>");
+              // Assuming SqlInjectionLesson8.generateTable is accessible and safe
+              output.append(SqlInjectionLesson8.generateTable(results)); 
+              return success(this).output(output.toString()).build();
+            } else {
+              return failed(this).output(output.toString()).build();
+            }
+        }
       } catch (SQLException sqle) {
         return failed(this).output(sqle.getMessage()).build();
       }

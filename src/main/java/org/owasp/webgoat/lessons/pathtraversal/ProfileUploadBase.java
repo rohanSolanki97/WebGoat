@@ -48,9 +48,13 @@ public class ProfileUploadBase implements AssignmentEndpoint {
     File uploadDirectory = cleanupAndCreateDirectoryForUser(username);
 
     try {
-      // FIX: Sanitize fullName to prevent path traversal when creating the file
-      String sanitizedFullName = FilenameUtils.getName(fullName);
-      var uploadedFile = new File(uploadDirectory, sanitizedFullName);
+      // Sanitize fullName to prevent path traversal
+      String sanitizedFullName = FilenameUtils.getName(fullName); // Extracts just the filename
+      if (sanitizedFullName.isEmpty()) {
+        return failed(this).feedback("path-traversal-profile-invalid-filename").build();
+      }
+
+      var uploadedFile = new File(uploadDirectory, sanitizedFullName); // Use sanitized name
       uploadedFile.createNewFile();
       FileCopyUtils.copy(file.getBytes(), uploadedFile);
 
@@ -69,7 +73,9 @@ public class ProfileUploadBase implements AssignmentEndpoint {
 
   @SneakyThrows
   protected File cleanupAndCreateDirectoryForUser(String username) {
-    var uploadDirectory = new File(this.webGoatHomeDirectory, "/PathTraversal/" + username);
+    // Sanitize username to prevent path traversal in directory creation
+    String sanitizedUsername = username.replaceAll("[./\\\\\\]", ""); // Remove path traversal characters
+    var uploadDirectory = new File(this.webGoatHomeDirectory, "/PathTraversal/" + sanitizedUsername);
     if (uploadDirectory.exists()) {
       FileSystemUtils.deleteRecursively(uploadDirectory);
     }
@@ -79,6 +85,7 @@ public class ProfileUploadBase implements AssignmentEndpoint {
 
   private boolean attemptWasMade(File expectedUploadDirectory, File uploadedFile)
       throws IOException {
+    // The canonical path check is good, but input needs to be sanitized earlier
     return !expectedUploadDirectory
         .getCanonicalPath()
         .equals(uploadedFile.getParentFile().getCanonicalPath());
@@ -102,7 +109,9 @@ public class ProfileUploadBase implements AssignmentEndpoint {
   }
 
   protected byte[] getProfilePictureAsBase64(String username) {
-    var profilePictureDirectory = new File(this.webGoatHomeDirectory, "/PathTraversal/" + username);
+    // Sanitize username to prevent path traversal in directory access
+    String sanitizedUsername = username.replaceAll("[./\\\\\\]", ""); // Remove path traversal characters
+    var profilePictureDirectory = new File(this.webGoatHomeDirectory, "/PathTraversal/" + sanitizedUsername);
     var profileDirectoryFiles = profilePictureDirectory.listFiles();
 
     if (profileDirectoryFiles != null && profileDirectoryFiles.length > 0) {
