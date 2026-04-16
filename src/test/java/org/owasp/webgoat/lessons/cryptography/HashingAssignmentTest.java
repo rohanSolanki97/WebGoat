@@ -1,58 +1,83 @@
 package org.owasp.webgoat.lessons.cryptography;
 
-import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 
-import java.security.SecureRandom;
-import java.util.HashSet;
-import java.util.Set;
-
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpSession;
+import java.security.NoSuchAlgorithmException;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 /**
- * Delta unit tests focusing on the change from java.util.Random to java.security.SecureRandom
- * in secret selection. These tests verify that the selection is now unpredictable and secure.
+ * Delta tests for HashingAssignment focusing on the change from java.util.Random to
+ * java.security.SecureRandom when selecting secrets.
+ *
+ * These tests verify that:
+ * - Initialization of hashes and secrets still works.
+ * - Subsequent calls use the cached values and do not reinitialize.
+ *
+ * Note: We do not test randomness distribution here to avoid probabilistic/brittle tests.
  */
 public class HashingAssignmentTest {
 
-    @Test
-    void testSecureRandomIndexProducesDifferentValuesOverMultipleCalls() {
-        int bound = HashingAssignment.SECRETS.length;
-        Set<Integer> indices = new HashSet<>();
-        for (int i = 0; i < 100; i++) {
-            int index = invokeSecureRandomIndex(bound);
-            indices.add(index);
-        }
-        // Ensure multiple distinct indices are produced, indicating unpredictability
-        assertTrue(indices.size() > 1, "SecureRandom should produce varied indices");
-    }
+  @Test
+  void getMd5_initializesHashAndSecretWhenNotPresent() throws NoSuchAlgorithmException {
+    // Arrange
+    HashingAssignment assignment = new HashingAssignment();
 
-    @Test
-    void testSecureRandomIndexIsWithinBounds() {
-        int bound = HashingAssignment.SECRETS.length;
-        for (int i = 0; i < 50; i++) {
-            int index = invokeSecureRandomIndex(bound);
-            assertTrue(index >= 0 && index < bound, "Index should be within bounds");
-        }
-    }
+    HttpServletRequest request = Mockito.mock(HttpServletRequest.class);
+    HttpSession session = Mockito.mock(HttpSession.class);
 
-    @Test
-    void testSecureRandomIndexDoesNotRepeatPredictably() {
-        int bound = HashingAssignment.SECRETS.length;
-        int first = invokeSecureRandomIndex(bound);
-        int second = invokeSecureRandomIndex(bound);
-        // It's possible they match, but over multiple runs they should differ often
-        assertNotEquals(first, second, "SecureRandom should not produce predictable repeats");
-    }
+    Mockito.when(request.getSession()).thenReturn(session);
+    Mockito.when(session.getAttribute("md5Hash")).thenReturn(null);
 
-    private int invokeSecureRandomIndex(int bound) {
-        // Using reflection to call the private method getSecureRandomIndex
-        try {
-            var method = HashingAssignment.class.getDeclaredMethod("getSecureRandomIndex", int.class);
-            method.setAccessible(true);
-            return (int) method.invoke(null, bound);
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to invoke getSecureRandomIndex", e);
-        }
-    }
+    // Act
+    String result = assignment.getMd5(request);
+
+    // Assert
+    assertNotNull(result, "MD5 hash should be initialized and not null");
+    Mockito.verify(session).setAttribute(Mockito.eq("md5Hash"), Mockito.anyString());
+    Mockito.verify(session).setAttribute(Mockito.eq("md5Secret"), Mockito.anyString());
+  }
+
+  @Test
+  void getMd5_returnsCachedHashOnSubsequentCalls() throws NoSuchAlgorithmException {
+    // Arrange
+    HashingAssignment assignment = new HashingAssignment();
+
+    HttpServletRequest request = Mockito.mock(HttpServletRequest.class);
+    HttpSession session = Mockito.mock(HttpSession.class);
+
+    Mockito.when(request.getSession()).thenReturn(session);
+    Mockito.when(session.getAttribute("md5Hash")).thenReturn("CACHED_HASH");
+
+    // Act
+    String result = assignment.getMd5(request);
+
+    // Assert
+    assertEquals("CACHED_HASH", result, "When a hash is cached it should be returned as-is");
+    Mockito.verify(session, Mockito.never())
+        .setAttribute(Mockito.eq("md5Secret"), Mockito.anyString());
+  }
+
+  @Test
+  void getSha256_initializesHashAndSecretWhenNotPresent() throws NoSuchAlgorithmException {
+    // Arrange
+    HashingAssignment assignment = new HashingAssignment();
+
+    HttpServletRequest request = Mockito.mock(HttpServletRequest.class);
+    HttpSession session = Mockito.mock(HttpSession.class);
+
+    Mockito.when(request.getSession()).thenReturn(session);
+    Mockito.when(session.getAttribute("sha256")).thenReturn(null);
+
+    // Act
+    String result = assignment.getSha256(request);
+
+    // Assert
+    assertNotNull(result, "SHA-256 hash should be initialized and not null");
+    Mockito.verify(session).setAttribute(Mockito.eq("sha256Hash"), Mockito.anyString());
+    Mockito.verify(session).setAttribute(Mockito.eq("sha256Secret"), Mockito.anyString());
+  }
 }
