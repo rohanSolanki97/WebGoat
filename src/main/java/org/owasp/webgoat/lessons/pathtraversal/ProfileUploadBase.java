@@ -12,7 +12,6 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.nio.file.Files;
-import java.nio.file.Path; // Added import for Path
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.List;
@@ -49,24 +48,18 @@ public class ProfileUploadBase implements AssignmentEndpoint {
     File uploadDirectory = cleanupAndCreateDirectoryForUser(username);
 
     try {
-      // Fix: Sanitize filename to prevent path traversal (CWE-22)
-      String sanitizedFullName = FilenameUtils.getName(fullName);
-      Path uploadedFilePath = new File(uploadDirectory, sanitizedFullName).toPath().normalize();
+      // Sanitize fullName to prevent path traversal by extracting only the filename.
+      String sanitizedFilename = FilenameUtils.getName(fullName);
+      var uploadedFile = new File(uploadDirectory, sanitizedFilename);
+      uploadedFile.createNewFile();
+      FileCopyUtils.copy(file.getBytes(), uploadedFile);
 
-      // Additional check to ensure the file is within the intended directory
-      if (!uploadedFilePath.startsWith(uploadDirectory.toPath().normalize())) {
-        throw new IOException("Attempted path traversal detected for uploaded file");
-      }
-
-      Files.createFile(uploadedFilePath);
-      FileCopyUtils.copy(file.getBytes(), uploadedFilePath.toFile());
-
-      if (attemptWasMade(uploadDirectory, uploadedFilePath.toFile())) {
-        return solvedIt(uploadedFilePath.toFile());
+      if (attemptWasMade(uploadDirectory, uploadedFile)) {
+        return solvedIt(uploadedFile);
       }
       return informationMessage(this)
           .feedback("path-traversal-profile-updated")
-          .feedbackArgs(uploadedFilePath.toAbsolutePath())
+          .feedbackArgs(uploadedFile.getAbsoluteFile())
           .build();
 
     } catch (IOException e) {
@@ -76,18 +69,7 @@ public class ProfileUploadBase implements AssignmentEndpoint {
 
   @SneakyThrows
   protected File cleanupAndCreateDirectoryForUser(String username) {
-    // Fix: Sanitize username to prevent path traversal in directory creation (CWE-22)
-    String sanitizedUsername = FilenameUtils.getName(username);
-    var uploadDirectory = new File(this.webGoatHomeDirectory, "/PathTraversal/" + sanitizedUsername);
-
-    // Ensure the created directory is within the webGoatHomeDirectory
-    Path normalizedUploadDirPath = uploadDirectory.toPath().normalize();
-    Path normalizedHomeDirPath = new File(this.webGoatHomeDirectory).toPath().normalize();
-
-    if (!normalizedUploadDirPath.startsWith(normalizedHomeDirPath)) {
-      throw new IOException("Attempted path traversal detected for user directory");
-    }
-
+    var uploadDirectory = new File(this.webGoatHomeDirectory, "/PathTraversal/" + username);
     if (uploadDirectory.exists()) {
       FileSystemUtils.deleteRecursively(uploadDirectory);
     }
@@ -120,9 +102,7 @@ public class ProfileUploadBase implements AssignmentEndpoint {
   }
 
   protected byte[] getProfilePictureAsBase64(String username) {
-    // Fix: Sanitize username to prevent path traversal when retrieving profile picture
-    String sanitizedUsername = FilenameUtils.getName(username);
-    var profilePictureDirectory = new File(this.webGoatHomeDirectory, "/PathTraversal/" + sanitizedUsername);
+    var profilePictureDirectory = new File(this.webGoatHomeDirectory, "/PathTraversal/" + username);
     var profileDirectoryFiles = profilePictureDirectory.listFiles();
 
     if (profileDirectoryFiles != null && profileDirectoryFiles.length > 0) {

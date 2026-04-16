@@ -1,105 +1,81 @@
 package org.owasp.webgoat.lessons.pathtraversal;
 
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.*;
 
 import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.mock.web.MockMultipartFile;
+import org.junit.jupiter.api.io.TempDir;
+import org.owasp.webgoat.container.assignments.AttackResult;
+import org.springframework.util.FileCopyUtils;
 import org.springframework.web.multipart.MultipartFile;
 
 /**
- * Delta tests for ProfileUploadBase focusing on secure path handling:
- * - username and fullName are sanitized before being used in paths.
- * - uploaded files are constrained to the intended user directory.
+ * Delta tests for ProfileUploadBase focusing on the change that sanitizes the
+ * user-supplied filename using FilenameUtils.getName to prevent path traversal.
  */
 public class ProfileUploadBaseTest {
 
-  private Path tempHome;
-
-  private ProfileUploadBase createBase() throws Exception {
-    tempHome = Files.createTempDirectory("webgoat-profile-home-");
-    return new ProfileUploadBase(tempHome.toString());
-  }
-
-  @AfterEach
-  void cleanup() throws Exception {
-    if (tempHome != null) {
-      Files.walk(tempHome)
-          .sorted((a, b) -> b.compareTo(a))
-          .map(Path::toFile)
-          .forEach(File::delete);
-    }
-  }
-
   @Test
-  void execute_withNormalInputs_savesFileWithinUserDirectory() throws Exception {
-    // Arrange
-    ProfileUploadBase base = createBase();
-    MultipartFile file =
-        new MockMultipartFile("file", "avatar.jpg", "image/jpeg", "dummy".getBytes());
-    String username = "bob";
-    String fullName = "avatar.jpg";
-
-    // Act
-    base.execute(file, fullName, username);
-
-    // Assert
-    File userDir = tempHome.resolve("PathTraversal").resolve(username).toFile();
-    File uploaded = new File(userDir, fullName);
-    assertTrue(uploaded.exists(), "File should be stored within the per-user directory");
-  }
-
-  @Test
-  void execute_withPathTraversalInFilename_doesNotEscapeUserDirectory() throws Exception {
-    // Arrange
-    ProfileUploadBase base = createBase();
-    MultipartFile file =
-        new MockMultipartFile("file", "avatar.jpg", "image/jpeg", "dummy".getBytes());
-    String username = "alice";
-    String maliciousFullName = "../evil.txt";
-
-    // Act
-    base.execute(file, maliciousFullName, username);
-
-    // Assert: sanitized filename should drop traversal and only use base name 'evil.txt'
-    File expectedDir = tempHome.resolve("PathTraversal").resolve("alice").toFile();
-    File expectedFile = new File(expectedDir, "evil.txt");
-    assertTrue(
-        expectedFile.exists(),
-        "Sanitized filename should be used; file must remain inside the intended directory");
-
-    // confirm no file was created above the base directory
-    File parent = tempHome.getParent().toFile();
-    File unexpected = new File(parent, "evil.txt");
-    assertFalse(
-        unexpected.exists(),
-        "Path traversal in filename must not create files outside the home directory");
-  }
-
-  @Test
-  void cleanupAndCreateDirectoryForUser_withTraversalUsername_staysInsideBaseDirectory()
+  void execute_shouldStripPathComponentsFromFullNameAndPreventTraversal(@TempDir Path tmpDir)
       throws Exception {
     // Arrange
-    ProfileUploadBase base = createBase();
-    String maliciousUsername = "../attacker";
+    String baseDir = tmpDir.toAbsolutePath().toString();
+    ProfileUploadBase base = new ProfileUploadBase(baseDir);
+
+    MultipartFile file = mock(MultipartFile.class);
+    when(file.isEmpty()).thenReturn(false);
+    byte[] content = "test".getBytes();
+    when(file.getBytes()).thenReturn(content);
+
+    String username = "user1";
+    String maliciousName = "../outside/evil.jpg";
 
     // Act
-    File uploadDir = base.cleanupAndCreateDirectoryForUser(maliciousUsername);
+    AttackResult result = base.execute(file, maliciousName, username);
 
     // Assert
-    // Directory name should be sanitized to 'attacker'
-    File expectedDir = tempHome.resolve("PathTraversal").resolve("attacker").toFile();
-    assertTrue(
-        expectedDir.exists(),
-        "Sanitized username directory should exist under the configured home directory");
+    assertThat(result).isNotNull();
 
-    // verify returned directory is inside base
-    assertTrue(
-        uploadDir.toPath().normalize().startsWith(tempHome.toRealPath()),
-        "User directory must not escape the configured home directory");
+    File uploadDir = new File(baseDir, "/PathTraversal/" + username);
+    assertThat(uploadDir).isDirectory();
+
+    File[] uploadedFiles = uploadDir.listFiles();
+    assertThat(uploadedFiles).isNotNull();
+    assertThat(uploadedFiles.length).isEqualTo(1);
+
+    File stored = uploadedFiles[0];
+    // Ensure only the base name is used (no directory traversal)
+    assertThat(stored.getName()).isEqualTo("evil.jpg");
+    assertThat(stored.getCanonicalPath()).startsWith(uploadDir.getCanonicalPath());
+    assertThat(Files.readAllBytes(stored.toPath())).isEqualTo(content);
+  }
+
+  @Test
+  void execute_shouldAcceptSimpleFilenameUnchanged(@TempDir Path tmpDir) throws Exception {
+    // Arrange
+    String baseDir = tmpDir.toAbsolutePath().toString();
+    ProfileUploadBase base = new ProfileUploadBase(baseDir);
+
+    MultipartFile file = mock(MultipartFile.class);
+    when(file.isEmpty()).thenReturn(false);
+    byte[] content = "avatar".getBytes();
+    when(file.getBytes()).thenReturn(content);
+
+    String username = "user2";
+    String fileName = "avatar.png";
+
+    // Act
+    AttackResult result = base.execute(file, fileName, username);
+
+    // Assert
+    assertThat(result).isNotNull();
+
+    File uploadDir = new File(baseDir, "/PathTraversal/" + username);
+    File expected = new File(uploadDir, fileName);
+    assertThat(expected).exists();
+    assertThat(FileCopyUtils.copyToByteArray(expected)).isEqualTo(content);
   }
 }

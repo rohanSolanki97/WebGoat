@@ -17,13 +17,13 @@ public class OpenRedirectRealRedirect {
 
   @GetMapping("/OpenRedirect/realRedirect")
   public ModelAndView real(@RequestParam("url") String url) {
-    // Fix: Validate redirect URL to prevent Open Redirect (CWE-601)
-    // Only allow redirects to internal paths starting with '/' or specific whitelisted domains.
-    // For this lesson, we enforce internal paths.
-    if (url == null || !url.startsWith("/") || url.contains("//") || url.contains("\\?") || url.contains("\\#")) { // Basic validation for internal paths
-      // Fallback to a safe default or error page
-      return new ModelAndView("redirect:/welcome.mvc"); // Redirect to a safe internal page
+    // Validate that the URL is relative and does not contain a scheme to prevent external redirects.
+    if (url.startsWith("/") && !url.contains("://")) {
+      return new ModelAndView("redirect:" + url);
+    } else {
+      // Redirect to a safe default page or return an error view if validation fails.
+      // For a lesson, redirecting to the root context path is a safe default.
+      return new ModelAndView("redirect:/");
     }
-    return new ModelAndView("redirect:" + url);
   }
 }

@@ -1,87 +1,55 @@
 package org.owasp.webgoat.lessons.xxe;
 
-import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.junit.jupiter.api.Assertions.fail;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.*;
 
 import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
+import org.junit.jupiter.api.io.TempDir;
 import org.owasp.webgoat.container.users.WebGoatUser;
 
 /**
- * Delta tests for BlindSendFileAssignment focusing on the secure path construction changes:
- * - username is sanitized before being used in a path
- * - created secret file path is enforced to stay within the intended directory
+ * Delta tests for BlindSendFileAssignment focusing on the sanitized directory construction
+ * introduced in createSecretFileWithRandomContents (path is no longer built directly from
+ * user.getUsername()).
  */
 public class BlindSendFileAssignmentTest {
 
-  private Path tempWebGoatHome;
-
-  private BlindSendFileAssignment createAssignment(String username) throws Exception {
-    tempWebGoatHome = Files.createTempDirectory("webgoat-home-");
-    CommentsCache commentsCache = Mockito.mock(CommentsCache.class);
-    BlindSendFileAssignment assignment =
-        new BlindSendFileAssignment(tempWebGoatHome.toString(), commentsCache);
-
-    WebGoatUser user = Mockito.mock(WebGoatUser.class);
-    Mockito.when(user.getUsername()).thenReturn(username);
-
-    // initialization triggers secret file creation via createSecretFileWithRandomContents
-    assignment.initialize(user);
-    return assignment;
-  }
-
-  @AfterEach
-  void cleanup() throws Exception {
-    if (tempWebGoatHome != null) {
-      // best-effort cleanup
-      Files.walk(tempWebGoatHome)
-          .sorted((a, b) -> b.compareTo(a))
-          .map(Path::toFile)
-          .forEach(File::delete);
-    }
-  }
-
   @Test
-  void initialize_withNormalUsername_createsSecretInsideUserDirectory() throws Exception {
+  void createSecretFileWithRandomContents_shouldSanitizeUsernameToPreventPathTraversal(
+      @TempDir Path tmpDir) throws Exception {
     // Arrange
-    String username = "alice";
+    String baseDir = tmpDir.toAbsolutePath().toString();
+    CommentsCache commentsCache = mock(CommentsCache.class);
+    BlindSendFileAssignment assignment = new BlindSendFileAssignment(baseDir, commentsCache);
+
+    WebGoatUser user = mock(WebGoatUser.class);
+    // Username containing characters that could be used for path traversal
+    when(user.getUsername()).thenReturn("../evil/..//user:name?*");
 
     // Act
-    createAssignment(username);
+    assignment.initialize(user); // triggers createSecretFileWithRandomContents(user)
 
     // Assert
-    File userDir = tempWebGoatHome.resolve("XXE").resolve(username).toFile();
+    // Expect a directory directly under baseDir/XXE with sanitized name (no path separators)
+    File xxeRoot = new File(baseDir, "/XXE");
+    assertThat(xxeRoot).isDirectory();
+
+    File[] children = xxeRoot.listFiles();
+    assertThat(children).isNotNull();
+    assertThat(children.length).isEqualTo(1);
+
+    File userDir = children[0];
+    // Ensure the directory name has only allowed characters as per the sanitization regex
+    assertThat(userDir.getName()).matches("^[a-zA-Z0-9-_.]*$");
+    // Ensure that 'evil' or '..' is not preserved as a directory level
+    assertThat(userDir.getCanonicalPath()).doesNotContain("..").doesNotContain("evil");
+
+    // And the secret file should exist inside the sanitized directory
     File secretFile = new File(userDir, "secret.txt");
-    assertTrue(
-        secretFile.exists(),
-        "Secret file should be created inside a directory derived from the sanitized username");
-  }
-
-  @Test
-  void initialize_withPathTraversalUsername_doesNotEscapeBaseDirectory() throws Exception {
-    // Arrange
-    String maliciousUsername = "../evilUser";
-
-    // Act
-    createAssignment(maliciousUsername);
-
-    // Assert
-    // Because FilenameUtils.getName is used, the actual directory should be just "evilUser"
-    File expectedUserDir = tempWebGoatHome.resolve("XXE").resolve("evilUser").toFile();
-    File secretFile = new File(expectedUserDir, "secret.txt");
-    assertTrue(
-        secretFile.exists(),
-        "Secret file must be created in a sanitized directory name, not using raw ../ segments");
-
-    // Additionally check that no unintended directory was created above the base
-    File parent = tempWebGoatHome.getParent().toFile();
-    File unintendedDir = new File(parent, "evilUser");
-    if (unintendedDir.exists()) {
-      fail("Path traversal should not create directories outside the configured base directory");
-    }
+    assertThat(secretFile).exists();
+    assertThat(Files.readString(secretFile.toPath())).contains("WebGoat 8.0 rocks...");
   }
 }

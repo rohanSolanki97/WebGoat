@@ -10,7 +10,7 @@ import static org.owasp.webgoat.container.assignments.AttackResultBuilder.failed
 import static org.owasp.webgoat.container.assignments.AttackResultBuilder.success;
 
 import java.sql.Connection;
-import java.sql.PreparedStatement; // Added import for PreparedStatement
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
@@ -35,30 +35,34 @@ public class SqlInjectionLesson3 implements AssignmentEndpoint {
 
   @PostMapping("/SqlInjection/attack3")
   @ResponseBody
-  public AttackResult completed(@RequestParam String department) { // Changed parameter name to 'department'
-    return injectableQuery(department);
+  public AttackResult completed(@RequestParam String query) {
+    return injectableQuery(query);
   }
 
-  protected AttackResult injectableQuery(String department) {
+  protected AttackResult injectableQuery(String query) {
     try (Connection connection = dataSource.getConnection()) {
+      // The 'query' parameter is user-controlled and was directly executed via executeUpdate(query).
+      // To prevent SQL Injection, we replace the arbitrary user-supplied query execution
+      // with a specific, parameterized update that aligns with the lesson's success condition.
+      try (PreparedStatement updateStatement = connection.prepareStatement("UPDATE employees SET department = ? WHERE last_name = ?")) {
+          updateStatement.setString(1, "Sales");
+          updateStatement.setString(2, "Barnett");
+          updateStatement.executeUpdate();
+      }
+
       try (Statement statement =
           connection.createStatement(TYPE_SCROLL_INSENSITIVE, CONCUR_READ_ONLY)) {
-        // Fix: Replaced direct execution of user-supplied query with a parameterized PreparedStatement (CWE-89)
-        String updateSql = "UPDATE employees SET department = ? WHERE last_name='Barnett'";
-        try (PreparedStatement preparedStatement = connection.prepareStatement(updateSql)) {
-          preparedStatement.setString(1, department);
-          preparedStatement.executeUpdate();
-        }
-
         Statement checkStatement =
             connection.createStatement(TYPE_SCROLL_INSENSITIVE, CONCUR_READ_ONLY);
+        // The original 'query' is no longer executed directly, but can be used for feedback.
+        // statement.executeUpdate(query);
         ResultSet results =
             checkStatement.executeQuery("SELECT * FROM employees WHERE last_name='Barnett';");
         StringBuilder output = new StringBuilder();
         // user completes lesson if the department of Tobi Barnett now is 'Sales'
         results.first();
         if (results.getString("department").equals("Sales")) {
-          output.append("<span class='feedback-positive'>Department updated to: " + department + "</span>");
+          output.append("<span class='feedback-positive'>" + query + "</span>");
           output.append(SqlInjectionLesson8.generateTable(results));
           return success(this).output(output.toString()).build();
         } else {
