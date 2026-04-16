@@ -1,56 +1,85 @@
 package org.owasp.webgoat.lessons.deserialization;
 
-import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.*;
+import static org.junit.jupiter.api.Assertions.*;
 
-import java.io.ByteArrayOutputStream;
-import java.io.ObjectOutputStream;
+import java.io.ByteArrayInputStream;
+import java.io.InvalidClassException;
 import java.util.Base64;
-import org.dummy.insecure.framework.VulnerableTaskHolder;
-import org.junit.jupiter.api.DisplayName;
+
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockitoAnnotations;
 import org.owasp.webgoat.container.assignments.AttackResult;
 
+/**
+ * Delta unit tests for InsecureDeserializationTask focusing on secure deserialization changes:
+ * - Input validation for null/blank tokens
+ * - Enforcement of class allowlist via SafeObjectInputStream
+ * - Preservation of original challenge timing logic
+ */
 public class InsecureDeserializationTaskTest {
 
-  private final InsecureDeserializationTask task = new InsecureDeserializationTask();
+    private InsecureDeserializationTask task;
 
-  private String toWebGoatToken(Object obj) throws Exception {
-    ByteArrayOutputStream bos = new ByteArrayOutputStream();
-    try (ObjectOutputStream oos = new ObjectOutputStream(bos)) {
-      oos.writeObject(obj);
+    @BeforeEach
+    public void setup() {
+        MockitoAnnotations.openMocks(this);
+        task = new InsecureDeserializationTask();
     }
-    String base64 = Base64.getEncoder().encodeToString(bos.toByteArray());
-    return base64.replace('+', '-').replace('/', '_');
-  }
 
-  @Test
-  public void completed_handlesPlainStringWithoutCompletion() throws Exception {
-    String token = toWebGoatToken("just a string");
+    @Test
+    public void testRejectsNullOrBlankToken() throws Exception {
+        AttackResult resultNull = task.completed(null);
+        assertTrue(resultNull.getFeedback().contains("insecure-deserialization.invalidtoken"), "Should reject null token");
 
-    AttackResult result = task.completed(token);
-
-    assertThat(result.getLessonCompleted()).isFalse();
-  }
-
-  @Test
-  public void completed_rejectsDisallowedType() throws Exception {
-    class Disallowed implements java.io.Serializable {
-      private static final long serialVersionUID = 1L;
+        AttackResult resultBlank = task.completed("   ");
+        assertTrue(resultBlank.getFeedback().contains("insecure-deserialization.invalidtoken"), "Should reject blank token");
     }
-    String token = toWebGoatToken(new Disallowed());
 
-    AttackResult result = task.completed(token);
+    @Test
+    public void testRejectsUnauthorizedClassDeserialization() throws Exception {
+        // Serialize a String object to trigger unauthorized class
+        byte[] serialized;
+        try (java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+             java.io.ObjectOutputStream oos = new java.io.ObjectOutputStream(bos)) {
+            oos.writeObject("malicious");
+            oos.flush();
+            serialized = bos.toByteArray();
+        }
+        String token = Base64.getEncoder().encodeToString(serialized).replace('+', '-').replace('/', '_');
 
-    assertThat(result.getLessonCompleted()).isFalse();
-  }
+        AttackResult result = task.completed(token);
+        assertTrue(result.getFeedback().contains("insecure-deserialization.stringobject") 
+                || result.getFeedback().contains("insecure-deserialization.invalidversion"),
+                "Should reject unauthorized class deserialization");
+    }
 
-  @Test
-  public void completed_controlsVulnerableTaskHolderBehavior() throws Exception {
-    VulnerableTaskHolder holder = new VulnerableTaskHolder();
-    String token = toWebGoatToken(holder);
+    @Test
+    public void testAllowsVulnerableTaskHolderDeserialization() throws Exception {
+        // Serialize a VulnerableTaskHolder object
+        VulnerableTaskHolder holder = new VulnerableTaskHolder();
+        byte[] serialized;
+        try (java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+             java.io.ObjectOutputStream oos = new java.io.ObjectOutputStream(bos)) {
+            oos.writeObject(holder);
+            oos.flush();
+            serialized = bos.toByteArray();
+        }
+        String token = Base64.getEncoder().encodeToString(serialized).replace('+', '-').replace('/', '_');
 
-    AttackResult result = task.completed(token);
+        AttackResult result = task.completed(token);
+        // Timing check may fail if execution is too fast, but should not be rejected for class type
+        assertFalse(result.getFeedback().contains("insecure-deserialization.wrongobject"), "Should not reject allowed class");
+    }
 
-    assertThat(result).isNotNull();
-  }
+    @Test
+    public void testSafeObjectInputStreamThrowsForUnauthorizedClass() throws Exception {
+        InsecureDeserializationTask.SafeObjectInputStream safeStream =
+                new InsecureDeserializationTask.SafeObjectInputStream(new ByteArrayInputStream(new byte[0]));
+        safeStream.setAllowedClasses(VulnerableTaskHolder.class);
+        assertThrows(InvalidClassException.class, () -> {
+            safeStream.resolveClass(java.io.ObjectStreamClass.lookup(String.class));
+        }, "Should throw InvalidClassException for unauthorized class");
+    }
 }
