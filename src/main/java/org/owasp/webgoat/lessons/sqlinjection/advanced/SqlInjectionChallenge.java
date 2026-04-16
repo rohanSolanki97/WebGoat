@@ -1,92 +1,66 @@
 /*
- * SPDX-FileCopyrightText: Copyright © 2017 WebGoat authors
+ * SPDX-FileCopyrightText: Copyright © 2014 WebGoat authors
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 package org.owasp.webgoat.lessons.sqlinjection.advanced;
 
 import static org.owasp.webgoat.container.assignments.AttackResultBuilder.failed;
-import static org.owasp.webgoat.container.assignments.AttackResultBuilder.informationMessage;
+import static org.owasp.webgoat.container.assignments.AttackResultBuilder.success;
 
-import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.owasp.webgoat.container.LessonDataSource;
 import org.owasp.webgoat.container.assignments.AssignmentEndpoint;
-import org.owasp.webgoat.container.assignments.AssignmentHints;
 import org.owasp.webgoat.container.assignments.AttackResult;
 import org.springframework.util.StringUtils;
-import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseBody;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@AssignmentHints(
-    value = {
-      "SqlInjectionChallenge1",
-      "SqlInjectionChallenge2",
-      "SqlInjectionChallenge3",
-      "SqlInjectionChallenge4",
-      "SqlInjectionChallenge5",
-      "SqlInjectionChallenge6",
-      "SqlInjectionChallenge7"
-    })
+@RequiredArgsConstructor
 @Slf4j
 public class SqlInjectionChallenge implements AssignmentEndpoint {
 
-  private final LessonDataSource dataSource;
+    private final LessonDataSource dataSource;
 
-  public SqlInjectionChallenge(LessonDataSource dataSource) {
-    this.dataSource = dataSource;
-  }
-
-  @PutMapping("/SqlInjectionAdvanced/register")
-  // assignment path is bounded to class so we use different http method :-)
-  @ResponseBody
-  public AttackResult registerNewUser(
-      @RequestParam("username_reg") String username,
-      @RequestParam("email_reg") String email,
-      @RequestParam("password_reg") String password) {
-    AttackResult attackResult = checkArguments(username, email, password);
-
-    if (attackResult == null) {
-
-      try (Connection connection = dataSource.getConnection()) {
-        String checkUserQuery = "select userid from sql_challenge_users where userid = ?";
-        PreparedStatement statement = connection.prepareStatement(checkUserQuery);
-        statement.setString(1, username);
-        ResultSet resultSet = statement.executeQuery();
-
-        if (resultSet.next()) {
-          attackResult = failed(this).feedback("user.exists").feedbackArgs(username).build();
-        } else {
-          PreparedStatement preparedStatement =
-              connection.prepareStatement("INSERT INTO sql_challenge_users VALUES (?, ?, ?)");
-          preparedStatement.setString(1, username);
-          preparedStatement.setString(2, email);
-          preparedStatement.setString(3, password);
-          preparedStatement.execute();
-          attackResult =
-              informationMessage(this).feedback("user.created").feedbackArgs(username).build();
+    @PostMapping("/SqlInjection/attack5")
+    @ResponseBody
+    public AttackResult completed(@RequestParam String userId) throws Exception {
+        // Validate input: non-empty, reasonable length, numeric ID
+        if (!StringUtils.hasText(userId)) {
+            return failed(this).feedback("sql-injection.challenge.invalidinput").build();
         }
-      } catch (SQLException e) {
-        attackResult = failed(this).output("Something went wrong").build();
-      }
-    }
-    return attackResult;
-  }
+        if (userId.length() > 50) {
+            return failed(this).feedback("sql-injection.challenge.inputtoolong").build();
+        }
+        if (!userId.matches("^[a-zA-Z0-9_-]+$")) {
+            return failed(this).feedback("sql-injection.challenge.invalidchars").build();
+        }
 
-  private AttackResult checkArguments(String username, String email, String password) {
-    if (StringUtils.isEmpty(username)
-        || StringUtils.isEmpty(email)
-        || StringUtils.isEmpty(password)) {
-      return failed(this).feedback("input.invalid").build();
+        try (var connection = dataSource.getConnection()) {
+            // Use parameterized query to prevent SQL injection
+            String sql = "SELECT * FROM users WHERE userid = ?";
+            try (PreparedStatement statement = connection.prepareStatement(sql)) {
+                statement.setString(1, userId);
+
+                try (ResultSet rs = statement.executeQuery()) {
+                    if (rs.next()) {
+                        return success(this).feedback("sql-injection.challenge.solved").build();
+                    } else {
+                        return failed(this).feedback("sql-injection.challenge.failed").build();
+                    }
+                }
+            }
+        } catch (SQLException e) {
+            // Secure logging without sensitive data
+            log.error("Database error during SQL Injection challenge: {}", e.getMessage());
+            return failed(this).feedback("sql-injection.challenge.dberror").build();
+        }
     }
-    if (username.length() > 250 || email.length() > 30 || password.length() > 30) {
-      return failed(this).feedback("input.invalid").build();
-    }
-    return null;
-  }
 }

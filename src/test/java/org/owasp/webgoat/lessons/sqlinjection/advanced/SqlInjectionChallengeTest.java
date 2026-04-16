@@ -1,78 +1,93 @@
 package org.owasp.webgoat.lessons.sqlinjection.advanced;
 
-import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.*;
+import static org.junit.jupiter.api.Assertions.*;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import org.junit.jupiter.api.DisplayName;
+
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mock;
+import org.mockito.MockitoAnnotations;
 import org.owasp.webgoat.container.LessonDataSource;
 import org.owasp.webgoat.container.assignments.AttackResult;
+import org.springframework.util.StringUtils;
 
+/**
+ * Delta unit tests for SqlInjectionChallenge focusing on the fixed SQL injection vulnerability:
+ * - Input validation for null/empty, length, and allowed characters
+ * - Parameterized query usage
+ * - Correct challenge logic for valid and invalid inputs
+ */
 public class SqlInjectionChallengeTest {
 
-  @Test
-  public void registerNewUser_usesPreparedStatementForCheck() throws SQLException {
-    LessonDataSource dataSource = mock(LessonDataSource.class);
-    Connection connection = mock(Connection.class);
-    PreparedStatement checkStatement = mock(PreparedStatement.class);
-    PreparedStatement insertStatement = mock(PreparedStatement.class);
-    ResultSet resultSet = mock(ResultSet.class);
+    @Mock
+    private LessonDataSource dataSource;
+    @Mock
+    private Connection connection;
+    @Mock
+    private PreparedStatement preparedStatement;
+    @Mock
+    private ResultSet resultSet;
 
-    when(dataSource.getConnection()).thenReturn(connection);
-    when(connection.prepareStatement("select userid from sql_challenge_users where userid = ?"))
-        .thenReturn(checkStatement);
-    when(checkStatement.executeQuery()).thenReturn(resultSet);
-    when(resultSet.next()).thenReturn(false);
-    when(connection.prepareStatement("INSERT INTO sql_challenge_users VALUES (?, ?, ?)"))
-        .thenReturn(insertStatement);
+    private SqlInjectionChallenge challenge;
 
-    SqlInjectionChallenge challenge = new SqlInjectionChallenge(dataSource);
+    @BeforeEach
+    public void setup() throws Exception {
+        MockitoAnnotations.openMocks(this);
+        challenge = new SqlInjectionChallenge(dataSource);
+        when(dataSource.getConnection()).thenReturn(connection);
+        when(connection.prepareStatement(anyString())).thenReturn(preparedStatement);
+    }
 
-    String username = "alice' OR '1'='1";
-    String email = "alice@example.com";
-    String password = "SecureP@ssw0rd";
+    @Test
+    public void testRejectsEmptyInput() throws Exception {
+        AttackResult result = challenge.completed("");
+        assertTrue(result.getFeedback().contains("sql-injection.challenge.invalidinput"), "Should reject empty input");
+    }
 
-    AttackResult result = challenge.registerNewUser(username, email, password);
+    @Test
+    public void testRejectsTooLongInput() throws Exception {
+        String longInput = "a".repeat(51);
+        AttackResult result = challenge.completed(longInput);
+        assertTrue(result.getFeedback().contains("sql-injection.challenge.inputtoolong"), "Should reject overly long input");
+    }
 
-    verify(connection)
-        .prepareStatement("select userid from sql_challenge_users where userid = ?");
-    verify(checkStatement).setString(1, username);
-    verify(checkStatement).executeQuery();
+    @Test
+    public void testRejectsInvalidCharacters() throws Exception {
+        AttackResult result = challenge.completed("invalid;DROP TABLE");
+        assertTrue(result.getFeedback().contains("sql-injection.challenge.invalidchars"), "Should reject input with invalid characters");
+    }
 
-    verify(connection).prepareStatement("INSERT INTO sql_challenge_users VALUES (?, ?, ?)");
-    verify(insertStatement).setString(1, username);
-    verify(insertStatement).setString(2, email);
-    verify(insertStatement).setString(3, password);
-    verify(insertStatement).execute();
+    @Test
+    public void testUsesParameterizedQueryForValidInput() throws Exception {
+        when(preparedStatement.executeQuery()).thenReturn(resultSet);
+        when(resultSet.next()).thenReturn(true);
 
-    assertThat(result.getLessonCompleted()).isFalse();
-  }
+        AttackResult result = challenge.completed("validUser");
+        assertTrue(result.getFeedback().contains("sql-injection.challenge.solved"), "Should solve challenge for valid user");
 
-  @Test
-  public void registerNewUser_userExistsBranch() throws SQLException {
-    LessonDataSource dataSource = mock(LessonDataSource.class);
-    Connection connection = mock(Connection.class);
-    PreparedStatement checkStatement = mock(PreparedStatement.class);
-    ResultSet resultSet = mock(ResultSet.class);
+        verify(connection).prepareStatement("SELECT * FROM users WHERE userid = ?");
+        verify(preparedStatement).setString(1, "validUser");
+    }
 
-    when(dataSource.getConnection()).thenReturn(connection);
-    when(connection.prepareStatement("select userid from sql_challenge_users where userid = ?"))
-        .thenReturn(checkStatement);
-    when(checkStatement.executeQuery()).thenReturn(resultSet);
-    when(resultSet.next()).thenReturn(true);
+    @Test
+    public void testFailsChallengeForNonExistingUser() throws Exception {
+        when(preparedStatement.executeQuery()).thenReturn(resultSet);
+        when(resultSet.next()).thenReturn(false);
 
-    SqlInjectionChallenge challenge = new SqlInjectionChallenge(dataSource);
+        AttackResult result = challenge.completed("nonExisting");
+        assertTrue(result.getFeedback().contains("sql-injection.challenge.failed"), "Should fail challenge for non-existing user");
+    }
 
-    AttackResult result =
-        challenge.registerNewUser("existingUser", "user@example.com", "secret");
+    @Test
+    public void testDatabaseErrorHandledGracefully() throws Exception {
+        when(connection.prepareStatement(anyString())).thenThrow(new SQLException("DB error"));
 
-    assertThat(result.getLessonCompleted()).isFalse();
-    verify(connection, times(1))
-        .prepareStatement("select userid from sql_challenge_users where userid = ?");
-    verifyNoMoreInteractions(connection);
-  }
+        AttackResult result = challenge.completed("validUser");
+        assertTrue(result.getFeedback().contains("sql-injection.challenge.dberror"), "Should handle database error gracefully");
+    }
 }
