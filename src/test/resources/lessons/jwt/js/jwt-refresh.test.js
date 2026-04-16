@@ -1,130 +1,73 @@
-/**
- * Delta Jest tests for jwt-refresh.js focusing on the changed behavior:
- * - Hard-coded password has been removed from the login payload.
- * - getDemoPassword() now provides a non-secret demo value, optionally via a meta data attribute.
- * - newToken uses server response fields instead of undefined variables.
- *
- * These tests verify:
- * - login() sends password from getDemoPassword(), not a hard-coded literal.
- * - getDemoPassword() reads from the configured meta tag and falls back when absent.
- * - newToken() updates tokens from the response object.
- *
- * Test file path (derived from main path):
- * src/test/resources/lessons/jwt/js/jwt-refresh.test.js
- */
+// Delta tests for jwt-refresh.js focusing on:
+// - Removal of hard-coded password; password is sourced from a configurable data attribute.
+// - newToken now uses tokens from server response instead of undeclared variables.
 
-const path = require('path');
-const { JSDOM } = require('jsdom');
+require('../../../../main/resources/lessons/jwt/js/jwt-refresh.js'); // Ensure script is loaded
 
-function loadJwtRefreshDom(html, url) {
-  const dom = new JSDOM(html, { url: url || 'http://localhost/' });
-  global.window = dom.window;
-  global.document = dom.window.document;
-  global.navigator = dom.window.navigator;
-  global.localStorage = dom.window.localStorage;
-  global.$ = require('jquery')(dom.window);
-  global.jQuery = global.$;
-
-  const scriptPath = path.resolve(
-    __dirname,
-    '../../../../main/resources/lessons/jwt/js/jwt-refresh.js'
-  );
-  // eslint-disable-next-line global-require, import/no-dynamic-require
-  require(scriptPath);
-
-  return dom;
-}
-
-describe('jwt-refresh.js delta tests for demo password and token handling', () => {
-  afterEach(() => {
-    delete global.window;
-    delete global.document;
-    delete global.navigator;
-    delete global.localStorage;
-    delete global.$;
-    delete global.jQuery;
-    delete global.webgoat;
-    jest.resetModules();
+describe('jwt-refresh delta tests', () => {
+  beforeEach(() => {
+    // Reset DOM body data attribute and localStorage between tests
+    document.body.innerHTML = '';
+    document.body.removeAttribute('data-jwt-refresh-password');
+    localStorage.clear();
+    jest.restoreAllMocks();
   });
 
-  test('login uses demo password from meta tag and not a hard-coded secret', () => {
-    const html = `
-      <html>
-        <head>
-          <meta id="jwt-demo-password" data-password="demo-from-meta" />
-        </head>
-        <body></body>
-      </html>
-    `;
+  test('login should use password from body data attribute instead of hardcoded value', () => {
+    // Arrange
+    document.body.setAttribute('data-jwt-refresh-password', 'dynamicSecret');
 
-    loadJwtRefreshDom(html);
-
-    const ajaxSpy = jest.spyOn(global.$, 'ajax').mockImplementation((opts) => {
-      if (opts && typeof opts.success === 'function') {
-        opts.success({ access_token: 'a', refresh_token: 'r' });
+    const ajaxMock = jest.spyOn($, 'ajax').mockImplementation((options) => {
+      // Simulate immediate success callback
+      const response = { access_token: 'acc', refresh_token: 'ref' };
+      if (options && typeof options.success === 'function') {
+        options.success(response);
       }
-      return { success: jest.fn() };
+      return { success: (cb) => cb(response) };
     });
 
-    global.$(document).trigger('ready');
-
-    expect(ajaxSpy).toHaveBeenCalled();
-    const callArg = ajaxSpy.mock.calls[0][0];
-    const payload = JSON.parse(callArg.data);
-    expect(payload.password).toBe('demo-from-meta');
-    expect(payload.password).not.toBe('bm5nhSkxCXZkKRy4');
-
-    ajaxSpy.mockRestore();
-  });
-
-  test('login falls back to non-secret default password when meta tag is absent', () => {
-    const html = `<html><head></head><body></body></html>`;
-    loadJwtRefreshDom(html);
-
-    const ajaxSpy = jest.spyOn(global.$, 'ajax').mockImplementation((opts) => {
-      if (opts && typeof opts.success === 'function') {
-        opts.success({ access_token: 'a', refresh_token: 'r' });
-      }
-      return { success: jest.fn() };
-    });
-
-    global.$(document).trigger('ready');
-
-    const payload = JSON.parse(ajaxSpy.mock.calls[0][0].data);
-    expect(payload.password).toBe('demo-password');
-    expect(payload.password).not.toBe('bm5nhSkxCXZkKRy4');
-
-    ajaxSpy.mockRestore();
-  });
-
-  test('newToken updates tokens from server response instead of undefined variables', () => {
-    const html = `<html><head></head><body></body></html>`;
-    loadJwtRefreshDom(html);
-
-    global.localStorage.setItem('access_token', 'old-access');
-    global.localStorage.setItem('refresh_token', 'old-refresh');
-
-    const ajaxSpy = jest.spyOn(global.$, 'ajax').mockImplementation((opts) => {
-      if (opts && typeof opts.success === 'function') {
-        opts.success({
-          access_token: 'new-access',
-          refresh_token: 'new-refresh'
-        });
-      }
-      return { success: jest.fn() };
-    });
-
-    global.webgoat.customjs.addBearerToken();
-    // newToken is defined inside the IIFE, so we trigger it indirectly by attaching it to window
-    // for testing via a small shim.
-    const newTokenFn = global.window.newToken || global.window['newToken'];
-    if (typeof newTokenFn === 'function') {
-      newTokenFn();
+    // Act
+    // Call the exported login function if available, else trigger through ready handler
+    if (typeof window.login === 'function') {
+      window.login('Jerry');
+    } else {
+      // Fallback: directly invoke AJAX as in ready handler
+      const readyHandlers = $._data(document, 'events')?.ready || [];
+      readyHandlers.forEach(h => h.handler());
     }
 
-    expect(global.localStorage.getItem('access_token')).toBe('new-access');
-    expect(global.localStorage.getItem('refresh_token')).toBe('new-refresh');
+    // Assert
+    expect(ajaxMock).toHaveBeenCalled();
+    const call = ajaxMock.mock.calls[0][0];
+    const payload = JSON.parse(call.data);
+    expect(payload.password).toBe('dynamicSecret');
 
-    ajaxSpy.mockRestore();
+    ajaxMock.mockRestore();
+  });
+
+  test('newToken should update tokens from server response instead of undeclared variables', () => {
+    // Arrange
+    localStorage.setItem('access_token', 'oldAccess');
+    localStorage.setItem('refresh_token', 'oldRefresh');
+
+    const ajaxMock = jest.spyOn($, 'ajax').mockImplementation((options) => {
+      const response = { access_token: 'newAccess', refresh_token: 'newRefresh' };
+      if (options && typeof options.success === 'function') {
+        options.success(response);
+      }
+      return { success: (cb) => cb(response) };
+    });
+
+    // Act
+    if (typeof window.newToken === 'function') {
+      window.newToken();
+    }
+
+    // Assert
+    expect(ajaxMock).toHaveBeenCalled();
+    expect(localStorage.getItem('access_token')).toBe('newAccess');
+    expect(localStorage.getItem('refresh_token')).toBe('newRefresh');
+
+    ajaxMock.mockRestore();
   });
 });

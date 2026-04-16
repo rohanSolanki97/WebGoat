@@ -1,71 +1,56 @@
-define([
-    'jquery',
+define(['jquery',
     'underscore',
     'backbone',
-    'goatApp/model/HTMLContentModel'
-],
-function ($, _, Backbone, HTMLContentModel) {
+    'goatApp/model/HTMLContentModel'],
+     function($,
+        _,
+        Backbone,
+        HTMLContentModel){
 
     return HTMLContentModel.extend({
-        urlRoot: null,
+        urlRoot:null,
         defaults: {
-            items: null,
-            selectedItem: null
+            items:null,
+            selectedItem:null
         },
 
         initialize: function (options) {
 
         },
 
-        loadData: function (options) {
-            // NOTE:
-            // This value (options.name) should already be controlled by application code
-            // (lesson identifiers), but we still encode defensively before using it as part
-            // of the URL to avoid injection into the path.
-            var safeName = encodeURIComponent(String(options.name || ''));
-
-            this.urlRoot = safeName + '.lesson';
+        loadData: function(options) {
+            // Avoid double-encoding and unnecessary escaping that can lead to
+            // inefficient regex handling and ambiguous URLs.
+            // We treat options.name as a simple path segment and encode once.
+            var name = options && typeof options.name === 'string' ? options.name : '';
+            // Basic validation: allow only common safe characters in lesson names
+            // to mitigate malformed input that could interact badly with regexes.
+            var safeName = name.replace(/[^a-zA-Z0-9_\-./]/g, '');
+            this.urlRoot = encodeURIComponent(safeName) + '.lesson';
             var self = this;
-            this.fetch().done(function (data) {
+            this.fetch().done(function(data) {
                 self.setContent(data);
             });
         },
 
-        setContent: function (content, loadHelps) {
+        setContent: function(content, loadHelps) {
             if (typeof loadHelps === 'undefined') {
                 loadHelps = true;
             }
-            this.set('content', content);
-
-            // Use a more constrained, linear-time-safe regex for extracting the lesson URL.
-            // Previous pattern: document.URL.replace(/\.lesson.*/, '.lesson')
-            // This new pattern avoids nested or ambiguous constructs while preserving semantics.
-            var href = String(document.URL || '');
-            var lessonUrlMatch = href.match(/^[^?#]*?\.lesson\b/);
-            if (lessonUrlMatch) {
-                this.set('lessonUrl', lessonUrlMatch[0]);
+            this.set('content',content);
+            this.set('lessonUrl',document.URL.replace(/\.lesson.*/,'.lesson'));
+            var pageMatch = document.URL.match(/\.lesson\/(\d{1,4})$/);
+            if (pageMatch) {
+                this.set('pageNum', pageMatch[1]);
             } else {
-                // Fallback: use current URL without query/hash if pattern does not match.
-                this.set('lessonUrl', href.split(/[?#]/)[0]);
+                this.set('pageNum',0);
             }
-
-            // Safer, explicit page number extraction with bounded repetition and anchors.
-            var pageNumMatch = href.match(/\.lesson\/(\d{1,4})(?:[?#]|$)/);
-            if (pageNumMatch) {
-                this.set('pageNum', pageNumMatch[1]);
-            } else {
-                this.set('pageNum', 0);
-            }
-
-            this.trigger('content:loaded', this, loadHelps);
+            this.trigger('content:loaded',this,loadHelps);
         },
 
         fetch: function (options) {
             options = options || {};
-            return Backbone.Model.prototype.fetch.call(
-                this,
-                _.extend({ dataType: 'html' }, options)
-            );
+            return Backbone.Model.prototype.fetch.call(this, _.extend({ dataType: "html"}, options));
         }
     });
 });
