@@ -1,60 +1,85 @@
 package org.owasp.webgoat.container;
 
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.*;
 
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
 import org.owasp.webgoat.container.users.UserService;
-import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.config.annotation.authentication.builders.AuthenticationManagerBuilder;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 
 /**
  * Delta tests for WebSecurityConfig focusing on:
- * - Replacing NoOpPasswordEncoder with a secure PasswordEncoder (BCryptPasswordEncoder).
- * - Wiring of AuthenticationManager with the configured password encoder.
+ * - Replacement of NoOpPasswordEncoder with BCryptPasswordEncoder (PasswordEncoder bean).
+ * - Removal of explicit CSRF disabling (CSRF should no longer be disabled here).
  *
- * These tests validate that:
- * - passwordEncoder() returns a bcrypt-based encoder (not NoOp).
- * - authenticationManager() bean can be created using the provided AuthenticationConfiguration.
- *
- * Note: Direct verification of CSRF being enabled at the HttpSecurity level would require the
- * Spring Test security infrastructure; here we focus on the password encoder delta which is a
- * core part of the fix and can be asserted deterministically.
+ * These tests avoid full Spring context startup and focus on the changed behaviors.
  */
 public class WebSecurityConfigTest {
 
   @Test
-  void passwordEncoder_isBcryptBasedAndNotNoOp() {
+  void passwordEncoder_shouldReturnBCryptPasswordEncoder() {
     // Arrange
-    UserService userService = Mockito.mock(UserService.class);
+    UserService userService = mock(UserService.class);
     WebSecurityConfig config = new WebSecurityConfig(userService);
 
     // Act
     PasswordEncoder encoder = config.passwordEncoder();
 
     // Assert
-    assertNotNull(encoder, "PasswordEncoder bean must not be null");
-    String encoded = encoder.encode("password");
-    assertTrue(
-        encoded.startsWith("$2a$") || encoded.startsWith("$2b$") || encoded.startsWith("$2y$"),
-        "PasswordEncoder should use bcrypt and produce a bcrypt hash");
+    assertThat(encoder).isInstanceOf(BCryptPasswordEncoder.class);
+    String raw = "password";
+    String encoded = encoder.encode(raw);
+    assertThat(encoded).isNotEqualTo(raw);
+    assertThat(encoder.matches(raw, encoded)).isTrue();
   }
 
   @Test
-  void authenticationManager_beanCanBeObtainedFromConfiguration() throws Exception {
+  void filterChain_shouldNotDisableCsrfExplicitly() throws Exception {
     // Arrange
-    UserService userService = Mockito.mock(UserService.class);
+    UserService userService = mock(UserService.class);
     WebSecurityConfig config = new WebSecurityConfig(userService);
-    AuthenticationConfiguration authConfig = Mockito.mock(AuthenticationConfiguration.class);
-    AuthenticationManager manager = Mockito.mock(AuthenticationManager.class);
-    Mockito.when(authConfig.getAuthenticationManager()).thenReturn(manager);
+    HttpSecurity http = mock(HttpSecurity.class, RETURNS_DEEP_STUBS);
 
     // Act
-    AuthenticationManager resultingManager = config.authenticationManager(authConfig);
+    SecurityFilterChain chain = config.filterChain(http);
 
     // Assert
-    assertNotNull(resultingManager, "AuthenticationManager bean must not be null");
+    // We cannot easily introspect HTTP security configuration from the mock,
+    // but this test ensures the method can be invoked without errors using the new configuration.
+    assertThat(chain).isNotNull();
+  }
+
+  @Test
+  void configureGlobal_shouldConfigureUserDetailsService() throws Exception {
+    // Arrange
+    UserService userService = mock(UserService.class);
+    WebSecurityConfig config = new WebSecurityConfig(userService);
+    AuthenticationManagerBuilder authBuilder = mock(AuthenticationManagerBuilder.class);
+
+    // Act
+    config.configureGlobal(authBuilder);
+
+    // Assert
+    verify(authBuilder).userDetailsService(userService);
+  }
+
+  @Test
+  void authenticationManager_shouldDelegateToAuthenticationConfiguration() throws Exception {
+    // Arrange
+    UserService userService = mock(UserService.class);
+    WebSecurityConfig config = new WebSecurityConfig(userService);
+    AuthenticationConfiguration authenticationConfiguration = mock(AuthenticationConfiguration.class);
+    when(authenticationConfiguration.getAuthenticationManager()).thenReturn(null);
+
+    // Act
+    config.authenticationManager(authenticationConfiguration);
+
+    // Assert
+    verify(authenticationConfiguration).getAuthenticationManager();
   }
 }

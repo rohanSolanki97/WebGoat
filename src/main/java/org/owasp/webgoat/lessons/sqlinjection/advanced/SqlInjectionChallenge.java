@@ -7,7 +7,10 @@ package org.owasp.webgoat.lessons.sqlinjection.advanced;
 import static org.owasp.webgoat.container.assignments.AttackResultBuilder.failed;
 import static org.owasp.webgoat.container.assignments.AttackResultBuilder.informationMessage;
 
-import java.sql.*;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import lombok.extern.slf4j.Slf4j;
 import org.owasp.webgoat.container.LessonDataSource;
 import org.owasp.webgoat.container.assignments.AssignmentEndpoint;
@@ -51,21 +54,21 @@ public class SqlInjectionChallenge implements AssignmentEndpoint {
     if (attackResult == null) {
 
       try (Connection connection = dataSource.getConnection()) {
-        // Fix: Using PreparedStatement with parameterized queries to prevent SQL Injection (CWE-89)
-        String checkUserQuery = "select userid from sql_challenge_users where userid = ?";
-        PreparedStatement preparedStatementCheck = connection.prepareStatement(checkUserQuery);
-        preparedStatementCheck.setString(1, username);
-        ResultSet resultSet = preparedStatementCheck.executeQuery();
+        String checkUserQuery =
+            "select userid from sql_challenge_users where userid = ?";
+        PreparedStatement statement = connection.prepareStatement(checkUserQuery);
+        statement.setString(1, username);
+        ResultSet resultSet = statement.executeQuery();
 
         if (resultSet.next()) {
           attackResult = failed(this).feedback("user.exists").feedbackArgs(username).build();
         } else {
-          PreparedStatement preparedStatementInsert =
+          PreparedStatement preparedStatement =
               connection.prepareStatement("INSERT INTO sql_challenge_users VALUES (?, ?, ?)");
-          preparedStatementInsert.setString(1, username);
-          preparedStatementInsert.setString(2, email);
-          preparedStatementInsert.setString(3, password);
-          preparedStatementInsert.execute();
+          preparedStatement.setString(1, username);
+          preparedStatement.setString(2, email);
+          preparedStatement.setString(3, password);
+          preparedStatement.execute();
           attackResult =
               informationMessage(this).feedback("user.created").feedbackArgs(username).build();
         }
