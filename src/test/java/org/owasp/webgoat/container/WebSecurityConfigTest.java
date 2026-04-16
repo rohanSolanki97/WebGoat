@@ -1,55 +1,62 @@
 package org.owasp.webgoat.container;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.*;
 
-import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.owasp.webgoat.container.users.UserService;
-import org.springframework.security.authentication.AuthenticationManager;
-import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
-import org.springframework.security.core.userdetails.UserDetailsService;
-import org.springframework.security.crypto.password.PasswordEncoder;
+import org.mockito.Mock;
+import org.mockito.MockitoAnnotations;
+import org.springframework.security.config.annotation.authentication.builders.AuthenticationManagerBuilder;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 
+/**
+ * Delta unit tests for WebSecurityConfig focusing on:
+ * - CSRF protection enabled with CookieCsrfTokenRepository
+ * - BCryptPasswordEncoder usage for password hashing
+ */
 public class WebSecurityConfigTest {
 
-  @Test
-  public void passwordEncoder_isNotNoOp() {
-    UserService userService = mock(UserService.class);
-    WebSecurityConfig config = new WebSecurityConfig(userService);
+    private WebSecurityConfig config;
 
-    PasswordEncoder encoder = config.passwordEncoder();
+    @Mock
+    private HttpSecurity httpSecurity;
+    @Mock
+    private AuthenticationManagerBuilder authBuilder;
 
-    String raw = "secretPassword";
-    String encoded = encoder.encode(raw);
+    @BeforeEach
+    public void setup() {
+        MockitoAnnotations.openMocks(this);
+        config = new WebSecurityConfig();
+    }
 
-    assertThat(encoded).isNotEqualTo(raw);
-    assertThat(encoder.matches(raw, encoded)).isTrue();
-  }
+    @Test
+    public void testPasswordEncoderIsBCrypt() {
+        assertTrue(config.passwordEncoder() instanceof BCryptPasswordEncoder,
+                "PasswordEncoder should be BCryptPasswordEncoder");
+    }
 
-  @Test
-  public void userDetailsServiceBean_returnsUserService() {
-    UserService userService = mock(UserService.class);
-    WebSecurityConfig config = new WebSecurityConfig(userService);
+    @Test
+    public void testConfigureAuthenticationUsesHashedPassword() throws Exception {
+        AuthenticationManagerBuilder authBuilderMock = mock(AuthenticationManagerBuilder.class);
+        AuthenticationManagerBuilder.InMemoryUserDetailsManagerConfigurer<?> inMemoryConfig =
+                mock(AuthenticationManagerBuilder.InMemoryUserDetailsManagerConfigurer.class);
+        when(authBuilderMock.inMemoryAuthentication()).thenReturn(inMemoryConfig);
+        when(inMemoryConfig.withUser(anyString())).thenReturn(inMemoryConfig);
+        when(inMemoryConfig.password(anyString())).thenReturn(inMemoryConfig);
+        when(inMemoryConfig.roles(anyString())).thenReturn(inMemoryConfig);
 
-    UserDetailsService uds = config.userDetailsServiceBean();
+        config.configure(authBuilderMock);
 
-    assertThat(uds).isSameAs(userService);
-  }
+        verify(inMemoryConfig).password(argThat(pwd -> pwd.startsWith("$2") && pwd.length() > 20));
+    }
 
-  @Test
-  public void authenticationManager_isDelegatedToAuthenticationConfiguration() throws Exception {
-    UserService userService = mock(UserService.class);
-    WebSecurityConfig config = new WebSecurityConfig(userService);
-
-    AuthenticationConfiguration authenticationConfiguration =
-        mock(AuthenticationConfiguration.class);
-    AuthenticationManager authenticationManager = mock(AuthenticationManager.class);
-    when(authenticationConfiguration.getAuthenticationManager()).thenReturn(authenticationManager);
-
-    AuthenticationManager result = config.authenticationManager(authenticationConfiguration);
-
-    assertThat(result).isSameAs(authenticationManager);
-  }
+    @Test
+    public void testCsrfProtectionEnabled() throws Exception {
+        HttpSecurity httpMock = mock(HttpSecurity.class, RETURNS_DEEP_STUBS);
+        config.configure(httpMock);
+        verify(httpMock.csrf()).csrfTokenRepository(any(CookieCsrfTokenRepository.class));
+    }
 }
