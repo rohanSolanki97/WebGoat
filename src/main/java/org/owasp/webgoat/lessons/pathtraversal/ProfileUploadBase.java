@@ -48,7 +48,9 @@ public class ProfileUploadBase implements AssignmentEndpoint {
     File uploadDirectory = cleanupAndCreateDirectoryForUser(username);
 
     try {
-      var uploadedFile = new File(uploadDirectory, fullName);
+      // Sanitize fullName to prevent path traversal by extracting only the filename.
+      String sanitizedFilename = FilenameUtils.getName(fullName);
+      var uploadedFile = new File(uploadDirectory, sanitizedFilename);
       uploadedFile.createNewFile();
       FileCopyUtils.copy(file.getBytes(), uploadedFile);
 

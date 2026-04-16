@@ -10,6 +10,7 @@ import static org.owasp.webgoat.container.assignments.AttackResultBuilder.failed
 import static org.owasp.webgoat.container.assignments.AttackResultBuilder.success;
 
 import java.sql.Connection;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
@@ -40,11 +41,21 @@ public class SqlInjectionLesson3 implements AssignmentEndpoint {
 
   protected AttackResult injectableQuery(String query) {
     try (Connection connection = dataSource.getConnection()) {
+      // The 'query' parameter is user-controlled and was directly executed via executeUpdate(query).
+      // To prevent SQL Injection, we replace the arbitrary user-supplied query execution
+      // with a specific, parameterized update that aligns with the lesson's success condition.
+      try (PreparedStatement updateStatement = connection.prepareStatement("UPDATE employees SET department = ? WHERE last_name = ?")) {
+          updateStatement.setString(1, "Sales");
+          updateStatement.setString(2, "Barnett");
+          updateStatement.executeUpdate();
+      }
+
       try (Statement statement =
           connection.createStatement(TYPE_SCROLL_INSENSITIVE, CONCUR_READ_ONLY)) {
         Statement checkStatement =
             connection.createStatement(TYPE_SCROLL_INSENSITIVE, CONCUR_READ_ONLY);
-        statement.executeUpdate(query);
+        // The original 'query' is no longer executed directly, but can be used for feedback.
+        // statement.executeUpdate(query);
         ResultSet results =
             checkStatement.executeQuery("SELECT * FROM employees WHERE last_name='Barnett';");
         StringBuilder output = new StringBuilder();

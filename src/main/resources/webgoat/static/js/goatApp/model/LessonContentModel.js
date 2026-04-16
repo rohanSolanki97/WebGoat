@@ -19,7 +19,14 @@ define(['jquery',
         },
 
         loadData: function(options) {
-            this.urlRoot = _.escape(encodeURIComponent(options.name)) + '.lesson'
+            // Avoid double-encoding and unnecessary escaping that can lead to
+            // inefficient regex handling and ambiguous URLs.
+            // We treat options.name as a simple path segment and encode once.
+            var name = options && typeof options.name === 'string' ? options.name : '';
+            // Basic validation: allow only common safe characters in lesson names
+            // to mitigate malformed input that could interact badly with regexes.
+            var safeName = name.replace(/[^a-zA-Z0-9_\-./]/g, '');
+            this.urlRoot = encodeURIComponent(safeName) + '.lesson';
             var self = this;
             this.fetch().done(function(data) {
                 self.setContent(data);
@@ -32,8 +39,9 @@ define(['jquery',
             }
             this.set('content',content);
             this.set('lessonUrl',document.URL.replace(/\.lesson.*/,'.lesson'));
-            if (/.*\.lesson\/(\d{1,4})$/.test(document.URL)) {
-                this.set('pageNum',document.URL.replace(/.*\.lesson\/(\d{1,4})$/,'$1'));
+            var pageMatch = document.URL.match(/\.lesson\/(\d{1,4})$/);
+            if (pageMatch) {
+                this.set('pageNum', pageMatch[1]);
             } else {
                 this.set('pageNum',0);
             }

