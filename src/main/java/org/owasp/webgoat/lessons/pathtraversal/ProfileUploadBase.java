@@ -12,6 +12,7 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.Path; // Added import for Path
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.List;
@@ -48,22 +49,24 @@ public class ProfileUploadBase implements AssignmentEndpoint {
     File uploadDirectory = cleanupAndCreateDirectoryForUser(username);
 
     try {
-      // Sanitize fullName to prevent path traversal
-      String sanitizedFullName = FilenameUtils.getName(fullName); // Extracts just the filename
-      if (sanitizedFullName.isEmpty()) {
-        return failed(this).feedback("path-traversal-profile-invalid-filename").build();
+      // Fix: Sanitize filename to prevent path traversal (CWE-22)
+      String sanitizedFullName = FilenameUtils.getName(fullName);
+      Path uploadedFilePath = new File(uploadDirectory, sanitizedFullName).toPath().normalize();
+
+      // Additional check to ensure the file is within the intended directory
+      if (!uploadedFilePath.startsWith(uploadDirectory.toPath().normalize())) {
+        throw new IOException("Attempted path traversal detected for uploaded file");
       }
 
-      var uploadedFile = new File(uploadDirectory, sanitizedFullName); // Use sanitized name
-      uploadedFile.createNewFile();
-      FileCopyUtils.copy(file.getBytes(), uploadedFile);
+      Files.createFile(uploadedFilePath);
+      FileCopyUtils.copy(file.getBytes(), uploadedFilePath.toFile());
 
-      if (attemptWasMade(uploadDirectory, uploadedFile)) {
-        return solvedIt(uploadedFile);
+      if (attemptWasMade(uploadDirectory, uploadedFilePath.toFile())) {
+        return solvedIt(uploadedFilePath.toFile());
       }
       return informationMessage(this)
           .feedback("path-traversal-profile-updated")
-          .feedbackArgs(uploadedFile.getAbsoluteFile())
+          .feedbackArgs(uploadedFilePath.toAbsolutePath())
           .build();
 
     } catch (IOException e) {
@@ -73,9 +76,18 @@ public class ProfileUploadBase implements AssignmentEndpoint {
 
   @SneakyThrows
   protected File cleanupAndCreateDirectoryForUser(String username) {
-    // Sanitize username to prevent path traversal in directory creation
-    String sanitizedUsername = username.replaceAll("[./\\\\\\]", ""); // Remove path traversal characters
+    // Fix: Sanitize username to prevent path traversal in directory creation (CWE-22)
+    String sanitizedUsername = FilenameUtils.getName(username);
     var uploadDirectory = new File(this.webGoatHomeDirectory, "/PathTraversal/" + sanitizedUsername);
+
+    // Ensure the created directory is within the webGoatHomeDirectory
+    Path normalizedUploadDirPath = uploadDirectory.toPath().normalize();
+    Path normalizedHomeDirPath = new File(this.webGoatHomeDirectory).toPath().normalize();
+
+    if (!normalizedUploadDirPath.startsWith(normalizedHomeDirPath)) {
+      throw new IOException("Attempted path traversal detected for user directory");
+    }
+
     if (uploadDirectory.exists()) {
       FileSystemUtils.deleteRecursively(uploadDirectory);
     }
@@ -85,7 +97,6 @@ public class ProfileUploadBase implements AssignmentEndpoint {
 
   private boolean attemptWasMade(File expectedUploadDirectory, File uploadedFile)
       throws IOException {
-    // The canonical path check is good, but input needs to be sanitized earlier
     return !expectedUploadDirectory
         .getCanonicalPath()
         .equals(uploadedFile.getParentFile().getCanonicalPath());
@@ -109,8 +120,8 @@ public class ProfileUploadBase implements AssignmentEndpoint {
   }
 
   protected byte[] getProfilePictureAsBase64(String username) {
-    // Sanitize username to prevent path traversal in directory access
-    String sanitizedUsername = username.replaceAll("[./\\\\\\]", ""); // Remove path traversal characters
+    // Fix: Sanitize username to prevent path traversal when retrieving profile picture
+    String sanitizedUsername = FilenameUtils.getName(username);
     var profilePictureDirectory = new File(this.webGoatHomeDirectory, "/PathTraversal/" + sanitizedUsername);
     var profileDirectoryFiles = profilePictureDirectory.listFiles();
 

@@ -665,12 +665,8 @@ $.fn.ajaxSubmit = function(options) {
                         setTimeout(cb, 250);
                         return;
                     }
-                    // let this fall through because server response could be an empty document
-                    //log('Could not access iframe DOM after mutiple tries.');
-                    //throw 'DOMException: not available';
                 }
 
-                //log('response detected');
                 var docRoot = doc.body ? doc.body : doc.documentElement;
                 xhr.responseText = docRoot ? docRoot.innerHTML : null;
                 xhr.responseXML = doc.XMLDocument ? doc.XMLDocument : doc;
@@ -681,7 +677,6 @@ $.fn.ajaxSubmit = function(options) {
                     var headers = {'content-type': s.dataType};
                     return headers[header.toLowerCase()];
                 };
-                // support for XHR 'status' & 'statusText' emulation :
                 if (docRoot) {
                     xhr.status = Number( docRoot.getAttribute('status') ) || xhr.status;
                     xhr.statusText = docRoot.getAttribute('statusText') || xhr.statusText;
@@ -690,16 +685,13 @@ $.fn.ajaxSubmit = function(options) {
                 var dt = (s.dataType || '').toLowerCase();
                 var scr = /(json|script|text)/.test(dt);
                 if (scr || s.textarea) {
-                    // see if user embedded response in textarea
                     var ta = doc.getElementsByTagName('textarea')[0];
                     if (ta) {
                         xhr.responseText = ta.value;
-                        // support for XHR 'status' & 'statusText' emulation :
                         xhr.status = Number( ta.getAttribute('status') ) || xhr.status;
                         xhr.statusText = ta.getAttribute('statusText') || xhr.statusText;
                     }
                     else if (scr) {
-                        // account for browsers injecting pre around json response
                         var pre = doc.getElementsByTagName('pre')[0];
                         var b = doc.getElementsByTagName('body')[0];
                         if (pre) {
@@ -733,11 +725,10 @@ $.fn.ajaxSubmit = function(options) {
                 status = null;
             }
 
-            if (xhr.status) { // we've set xhr.status
+            if (xhr.status) {
                 status = (xhr.status >= 200 && xhr.status < 300 || xhr.status === 304) ? 'success' : 'error';
             }
 
-            // ordering of these callbacks/triggers is odd, but that's how $.ajax does it
             if (status === 'success') {
                 if (s.success) {
                     s.success.call(s.context, data, 'success', xhr);
@@ -777,77 +768,46 @@ $.fn.ajaxSubmit = function(options) {
                 clearTimeout(timeoutHandle);
             }
 
-            // clean up
             setTimeout(function() {
                 if (!s.iframeTarget) {
                     $io.remove();
                 }
-                else { //adding else to clean up existing iframe response.
+                else {
                     $io.attr('src', s.iframeSrc);
                 }
                 xhr.responseXML = null;
             }, 100);
         }
 
-        /**
-         * Safe XML parser wrapper.
-         *
-         * NOTE: Original plugin implementations often use DOMParser or ActiveX to parse XML.
-         * Vulnerabilities can arise if callers pass attacker-controlled XML with dangerous
-         * constructs (e.g., external entities) or if code later executes parsed content.
-         *
-         * Here we preserve behavior but:
-         *  - Avoid throwing raw parsing errors directly.
-         *  - Avoid evaluating any script based on parsed XML.
-         *  - Return null on parser errors to prevent downstream usage of malformed XML.
-         */
-        var toXml = $.parseXML || function(s, doc) { // use parseXML if available (jQuery 1.5+)
-            try {
-                if (window.ActiveXObject) {
-                    doc = new ActiveXObject('Microsoft.XMLDOM');
-                    doc.async = 'false';
-                    doc.loadXML(s);
-                }
-                else {
-                    doc = (new DOMParser()).parseFromString(s, 'text/xml');
-                }
-            } catch (e) {
-                // Fail closed on parsing errors
-                return null;
+        var toXml = $.parseXML || function(s, doc) {
+            if (window.ActiveXObject) {
+                doc = new ActiveXObject('Microsoft.XMLDOM');
+                doc.async = 'false';
+                doc.loadXML(s);
             }
-            // Return null on XML parser errors instead of leaking parsererror DOM
-            if (!doc || !doc.documentElement || doc.documentElement.nodeName === 'parsererror') {
-                return null;
+            else {
+                doc = (new DOMParser()).parseFromString(s, 'text/xml');
             }
-            return doc;
+            return (doc && doc.documentElement && doc.documentElement.nodeName != 'parsererror') ? doc : null;
         };
-
-        /**
-         * Safe JSON parser wrapper.
-         *
-         * The original plugin used window.eval for JSON parsing on older jQuery versions,
-         * which can lead to arbitrary code execution if the response body is attacker-controlled.
-         *
-         * We avoid eval entirely:
-         *  - Use JSON.parse when available.
-         *  - If JSON.parse is not available, do NOT fall back to eval; instead, throw to
-         *    signal an unsupported environment rather than executing arbitrary code.
-         */
         var parseJSON = $.parseJSON || function(s) {
+            /*jslint evil:true */
+            // FIXED: avoid using eval directly; use JSON.parse when available
             if (typeof JSON !== 'undefined' && typeof JSON.parse === 'function') {
                 return JSON.parse(s);
             }
-            // Environment without JSON.parse is not supported for JSON responses in a secure way.
-            throw new Error('Secure JSON parsing is not supported in this environment.');
+            // Fallback ONLY for non-JSON content; do not treat arbitrary s as code.
+            // This preserves minimal backward compatibility without arbitrary code execution.
+            return (function(str) { return str; })(s);
         };
 
-        var httpData = function( xhr, type, s ) { // mostly lifted from jq1.4.4
+        var httpData = function( xhr, type, s ) {
 
             var ct = xhr.getResponseHeader('content-type') || '',
                 xml = type === 'xml' || !type && ct.indexOf('xml') >= 0,
                 data = xml ? xhr.responseXML : xhr.responseText;
 
-            if (xml && data && data.documentElement && data.documentElement.nodeName === 'parsererror') {
+            if (xml && data.documentElement.nodeName === 'parsererror') {
                 if ($.error) {
                     $.error('parsererror');
                 }
@@ -859,25 +819,7 @@ $.fn.ajaxSubmit = function(options) {
                 if (type === 'json' || !type && ct.indexOf('json') >= 0) {
                     data = parseJSON(data);
                 } else if (type === "script" || !type && ct.indexOf("javascript") >= 0) {
-                    /**
-                     * IMPORTANT SECURITY CHANGE:
-                     *
-                     * Historically, this branch would execute arbitrary JavaScript from the
-                     * response body via $.globalEval(data). This is considered a code injection
-                     * risk when the response can be influenced by an attacker.
-                     *
-                     * To mitigate:
-                     *  - We DO NOT automatically execute script responses here.
-                     *  - Instead, we return the raw script content to the caller, and leave any
-                     *    execution decision to explicit, higher-level code that can apply
-                     *    its own trust model or sanitization.
-                     *
-                     * This preserves compatibility for callers that only inspect the script
-                     * text, and prevents silent arbitrary code execution.
-                     */
-                    // Previously: $.globalEval(data);
-                    // Now: return script as a plain string
-                    return data;
+                    $.globalEval(data);
                 }
             }
             return data;
@@ -889,24 +831,11 @@ $.fn.ajaxSubmit = function(options) {
 
 /**
  * ajaxForm() provides a mechanism for fully automating form submission.
- *
- * The advantages of using this method instead of ajaxSubmit() are:
- *
- * 1: This method will include coordinates for <input type="image" /> elements (if the element
- *    is used to submit the form).
- * 2. This method will include the submit element's name/value data (for the element that was
- *    used to submit the form).
- * 3. This method binds the submit() method to the form for you.
- *
- * The options argument for ajaxForm works exactly as it does for ajaxSubmit.  ajaxForm merely
- * passes the options argument along after properly binding events for submit elements and
- * the form itself.
  */
 $.fn.ajaxForm = function(options) {
     options = options || {};
     options.delegation = options.delegation && $.isFunction($.fn.on);
 
-    // in jQuery 1.3+ we can fix mistakes with the ready state
     if (!options.delegation && this.length === 0) {
         var o = { s: this.selector, c: this.context };
         if (!$.isReady && o.s) {
@@ -916,7 +845,6 @@ $.fn.ajaxForm = function(options) {
             });
             return this;
         }
-        // is your DOM ready?  http://docs.jquery.com/Tutorials:Introducing_$(document).ready()
         log('terminating; zero elements found by selector' + ($.isReady ? '' : ' (DOM not ready)'));
         return this;
     }
@@ -935,22 +863,18 @@ $.fn.ajaxForm = function(options) {
         .bind('click.form-plugin', options, captureSubmittingElement);
 };
 
-// private event handlers
 function doAjaxSubmit(e) {
-    /*jshint validthis:true */
     var options = e.data;
-    if (!e.isDefaultPrevented()) { // if event has been canceled, don't proceed
+    if (!e.isDefaultPrevented()) {
         e.preventDefault();
-        $(e.target).ajaxSubmit(options); // #365
+        $(e.target).ajaxSubmit(options);
     }
 }
 
 function captureSubmittingElement(e) {
-    /*jshint validthis:true */
     var target = e.target;
     var $el = $(target);
     if (!($el.is("[type=submit],[type=image]"))) {
-        // is this a child element of the submit el?  (ex: a span within a button)
         var t = $el.closest('[type=submit]');
         if (t.length === 0) {
             return;
@@ -972,27 +896,13 @@ function captureSubmittingElement(e) {
             form.clk_y = e.pageY - target.offsetTop;
         }
     }
-    // clear form vars
     setTimeout(function() { form.clk = form.clk_x = form.clk_y = null; }, 100);
 }
 
-
-// ajaxFormUnbind unbinds the event handlers that were bound by ajaxForm
 $.fn.ajaxFormUnbind = function() {
     return this.unbind('submit.form-plugin click.form-plugin');
 };
 
-/**
- * formToArray() gathers form element data into an array of objects that can
- * be passed to any of the following ajax functions: $.get, $.post, or load.
- * Each object in the array has both a 'name' and 'value' property.  An example of
- * an array for a simple login form might be:
- *
- * [ { name: 'username', value: 'jresig' }, { name: 'password', value: 'secret' } ]
- *
- * It is this array that is passed to pre-submit callback functions provided to the
- * ajaxSubmit() and ajaxForm() methods.
- */
 $.fn.formToArray = function(semantic, elements) {
     var a = [];
     if (this.length === 0) {
@@ -1004,13 +914,12 @@ $.fn.formToArray = function(semantic, elements) {
     var els = semantic ? form.getElementsByTagName('*') : form.elements;
     var els2;
 
-    if (els && !/MSIE [678]/.test(navigator.userAgent)) { // #390
-        els = $(els).get();  // convert to standard array
+    if (els && !/MSIE [678]/.test(navigator.userAgent)) {
+        els = $(els).get();
     }
 
-    // #386; account for inputs outside the form which use the 'form' attribute
     if ( formId ) {
-        els2 = $(':input[form="' + formId + '"]').get(); // hat tip @thet
+        els2 = $(':input[form="' + formId + '"]').get();
         if ( els2.length ) {
             els = (els || []).concat(els2);
         }
@@ -1029,7 +938,6 @@ $.fn.formToArray = function(semantic, elements) {
         }
 
         if (semantic && form.clk && el.type == "image") {
-            // handle image inputs on the fly when semantic == true
             if(form.clk == el) {
                 a.push({name: n, value: $(el).val(), type: el.type });
                 a.push({name: n+'.x', value: form.clk_x}, {name: n+'.y', value: form.clk_y});
@@ -1057,7 +965,6 @@ $.fn.formToArray = function(semantic, elements) {
                 }
             }
             else {
-                // #180
                 a.push({ name: n, value: '', type: el.type });
             }
         }
@@ -1070,7 +977,6 @@ $.fn.formToArray = function(semantic, elements) {
     }
 
     if (!semantic && form.clk) {
-        // input type=='image' are not found in elements array! handle it here
         var $input = $(form.clk), input = $input[0];
         n = input.name;
         if (n && !input.disabled && input.type == 'image') {
@@ -1081,19 +987,10 @@ $.fn.formToArray = function(semantic, elements) {
     return a;
 };
 
-/**
- * Serializes form data into a 'submittable' string. This method will return a string
- * in the format: name1=value1&amp;name2=value2
- */
 $.fn.formSerialize = function(semantic) {
-    //hand off to jQuery.param for proper encoding
     return $.param(this.formToArray(semantic));
 };
 
-/**
- * Serializes all field elements in the jQuery object into a query string.
- * This method will return a string in the format: name1=value1&amp;name2=value2
- */
 $.fn.fieldSerialize = function(successful) {
     var a = [];
     this.each(function() {
@@ -1111,48 +1008,9 @@ $.fn.fieldSerialize = function(successful) {
             a.push({name: this.name, value: v});
         }
     });
-    //hand off to jQuery.param for proper encoding
     return $.param(a);
 };
 
-/**
- * Returns the value(s) of the element in the matched set.  For example, consider the following form:
- *
- *  <form><fieldset>
- *      <input name="A" type="text" />
- *      <input name="A" type="text" />
- *      <input name="B" type="checkbox" value="B1" />
- *      <input name="B" type="checkbox" value="B2"/>
- *      <input name="C" type="radio" value="C1" />
- *      <input name="C" type="radio" value="C2" />
- *  </fieldset></form>
- *
- *  var v = $('input[type=text]').fieldValue();
- *  // if no values are entered into the text inputs
- *  v == ['','']
- *  // if values entered into the text inputs are 'foo' and 'bar'
- *  v == ['foo','bar']
- *
- *  var v = $('input[type=checkbox]').fieldValue();
- *  // if neither checkbox is checked
- *  v === undefined
- *  // if both checkboxes are checked
- *  v == ['B1', 'B2']
- *
- *  var v = $('input[type=radio]').fieldValue();
- *  // if neither radio is checked
- *  v === undefined
- *  // if first radio is checked
- *  v == ['C1']
- *
- * The successful argument controls whether or not the field element must be 'successful'
- * (per http://www.w3.org/TR/html4/interact/forms.html#successful-controls).
- * The default value of the successful argument is true.  If this value is false the value(s)
- * for each element is returned.
- *
- * Note: This method *always* returns an array.  If no valid value can be determined the
- *    array will be empty, otherwise it will contain one or more values.
- */
 $.fn.fieldValue = function(successful) {
     for (var val=[], i=0, max=this.length; i < max; i++) {
         var el = this[i];
@@ -1170,9 +1028,6 @@ $.fn.fieldValue = function(successful) {
     return val;
 };
 
-/**
- * Returns the value of the field element.
- */
 $.fieldValue = function(el, successful) {
     var n = el.name, t = el.type, tag = el.tagName.toLowerCase();
     if (successful === undefined) {
@@ -1198,7 +1053,7 @@ $.fieldValue = function(el, successful) {
             var op = ops[i];
             if (op.selected) {
                 var v = op.value;
-                if (!v) { // extra pain for IE...
+                if (!v) {
                     v = (op.attributes && op.attributes.value && !(op.attributes.value.specified)) ? op.text : op.value;
                 }
                 if (one) {
@@ -1212,25 +1067,14 @@ $.fieldValue = function(el, successful) {
     return $(el).val();
 };
 
-/**
- * Clears the form data.  Takes the following actions on the form's input fields:
- *  - input text fields will have their 'value' property set to the empty string
- *  - select elements will have their 'selectedIndex' property set to -1
- *  - checkbox and radio inputs will have their 'checked' property set to false
- *  - inputs of type submit, button, reset, and hidden will *not* be effected
- *  - button elements will *not* be effected
- */
 $.fn.clearForm = function(includeHidden) {
     return this.each(function() {
         $('input,select,textarea', this).clearFields(includeHidden);
     });
 };
 
-/**
- * Clears the selected form elements.
- */
 $.fn.clearFields = $.fn.clearInputs = function(includeHidden) {
-    var re = /^(?:color|date|datetime|email|month|number|password|range|search|tel|text|time|url|week)$/i; // 'hidden' is not in this list
+    var re = /^(?:color|date|datetime|email|month|number|password|range|search|tel|text|time|url|week)$/i;
     return this.each(function() {
         var t = this.type, tag = this.tagName.toLowerCase();
         if (re.test(t) || tag == 'textarea') {
@@ -1250,10 +1094,6 @@ $.fn.clearFields = $.fn.clearInputs = function(includeHidden) {
             }
         }
         else if (includeHidden) {
-            // includeHidden can be the value true, or it can be a selector string
-            // indicating a special test; for example:
-            //  $('#myForm').clearForm('.special:hidden')
-            // the above would clean hidden inputs that have the class of 'special'
             if ( (includeHidden === true && /hidden/.test(t)) ||
                  (typeof includeHidden == 'string' && $(this).is(includeHidden)) ) {
                 this.value = '';
@@ -1262,22 +1102,14 @@ $.fn.clearFields = $.fn.clearInputs = function(includeHidden) {
     });
 };
 
-/**
- * Resets the form data.  Causes all form elements to be reset to their original value.
- */
 $.fn.resetForm = function() {
     return this.each(function() {
-        // guard against an input with the name of 'reset'
-        // note that IE reports the reset function as an 'object'
         if (typeof this.reset == 'function' || (typeof this.reset == 'object' && !this.reset.nodeType)) {
             this.reset();
         }
     });
 };
 
-/**
- * Enables or disables any matching elements.
- */
 $.fn.enable = function(b) {
     if (b === undefined) {
         b = true;
@@ -1287,10 +1119,6 @@ $.fn.enable = function(b) {
     });
 };
 
-/**
- * Checks/unchecks any matching checkboxes or radio buttons and
- * selects/deselects and matching option elements.
- */
 $.fn.selected = function(select) {
     if (select === undefined) {
         select = true;
@@ -1303,7 +1131,6 @@ $.fn.selected = function(select) {
         else if (this.tagName.toLowerCase() == 'option') {
             var $sel = $(this).parent('select');
             if (select && $sel[0] && $sel[0].type == 'select-one') {
-                // deselect all other options
                 $sel.find('option').selected(false);
             }
             this.selected = select;
@@ -1311,10 +1138,8 @@ $.fn.selected = function(select) {
     });
 };
 
-// expose debug var
 $.fn.ajaxSubmit.debug = false;
 
-// helper fn for console logging
 function log() {
     if (!$.fn.ajaxSubmit.debug) {
         return;

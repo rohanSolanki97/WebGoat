@@ -5,69 +5,101 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.File;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockMultipartFile;
-import org.springframework.util.FileSystemUtils;
+import org.springframework.web.multipart.MultipartFile;
 
 /**
- * Delta tests for ProfileUploadBase focusing on the changed behavior:
- * - The user-controlled fullName is sanitized with FilenameUtils.getName before file creation.
+ * Delta tests for ProfileUploadBase focusing on secure path handling:
+ * - username and fullName are sanitized before being used in paths.
+ * - uploaded files are constrained to the intended user directory.
  */
 public class ProfileUploadBaseTest {
 
-  private File tempBaseDir;
-  private ProfileUploadBase profileUploadBase;
+  private Path tempHome;
 
-  @BeforeEach
-  void setUp() throws Exception {
-    tempBaseDir = Files.createTempDirectory("webgoat-pathtraversal-test").toFile();
-    profileUploadBase = new ProfileUploadBase(tempBaseDir.getAbsolutePath());
+  private ProfileUploadBase createBase() throws Exception {
+    tempHome = Files.createTempDirectory("webgoat-profile-home-");
+    return new ProfileUploadBase(tempHome.toString());
   }
 
   @AfterEach
-  void tearDown() throws Exception {
-    if (tempBaseDir != null && tempBaseDir.exists()) {
-      FileSystemUtils.deleteRecursively(tempBaseDir);
+  void cleanup() throws Exception {
+    if (tempHome != null) {
+      Files.walk(tempHome)
+          .sorted((a, b) -> b.compareTo(a))
+          .map(Path::toFile)
+          .forEach(File::delete);
     }
   }
 
   @Test
-  void execute_sanitizesFullNameAndPreventsTraversal() throws Exception {
+  void execute_withNormalInputs_savesFileWithinUserDirectory() throws Exception {
+    // Arrange
+    ProfileUploadBase base = createBase();
+    MultipartFile file =
+        new MockMultipartFile("file", "avatar.jpg", "image/jpeg", "dummy".getBytes());
     String username = "bob";
-    String maliciousFullName = "../evilDir/evil.txt";
-    MockMultipartFile file =
-        new MockMultipartFile("file", "evil.txt", "text/plain", "dummy".getBytes());
+    String fullName = "avatar.jpg";
 
-    profileUploadBase.execute(file, maliciousFullName, username);
+    // Act
+    base.execute(file, fullName, username);
 
-    File userDir = new File(tempBaseDir, "/PathTraversal/" + username);
-    File sanitizedFile = new File(userDir, "evil.txt");
-    File rawTraversalFile = new File(userDir, maliciousFullName);
-
-    assertTrue(
-        sanitizedFile.exists(),
-        "Sanitized filename should exist only within the user's PathTraversal directory");
-    assertFalse(
-        rawTraversalFile.exists(),
-        "File path containing traversal sequences must not be created");
+    // Assert
+    File userDir = tempHome.resolve("PathTraversal").resolve(username).toFile();
+    File uploaded = new File(userDir, fullName);
+    assertTrue(uploaded.exists(), "File should be stored within the per-user directory");
   }
 
   @Test
-  void execute_createsFileForCleanName() throws Exception {
+  void execute_withPathTraversalInFilename_doesNotEscapeUserDirectory() throws Exception {
+    // Arrange
+    ProfileUploadBase base = createBase();
+    MultipartFile file =
+        new MockMultipartFile("file", "avatar.jpg", "image/jpeg", "dummy".getBytes());
     String username = "alice";
-    String cleanName = "profile.jpg";
-    MockMultipartFile file =
-        new MockMultipartFile("file", cleanName, "image/jpeg", "imageBytes".getBytes());
+    String maliciousFullName = "../evil.txt";
 
-    profileUploadBase.execute(file, cleanName, username);
+    // Act
+    base.execute(file, maliciousFullName, username);
 
-    File userDir = new File(tempBaseDir, "/PathTraversal/" + username);
-    File expectedFile = new File(userDir, cleanName);
-
+    // Assert: sanitized filename should drop traversal and only use base name 'evil.txt'
+    File expectedDir = tempHome.resolve("PathTraversal").resolve("alice").toFile();
+    File expectedFile = new File(expectedDir, "evil.txt");
     assertTrue(
         expectedFile.exists(),
-        "Clean filename should result in a file created in the expected user directory");
+        "Sanitized filename should be used; file must remain inside the intended directory");
+
+    // confirm no file was created above the base directory
+    File parent = tempHome.getParent().toFile();
+    File unexpected = new File(parent, "evil.txt");
+    assertFalse(
+        unexpected.exists(),
+        "Path traversal in filename must not create files outside the home directory");
+  }
+
+  @Test
+  void cleanupAndCreateDirectoryForUser_withTraversalUsername_staysInsideBaseDirectory()
+      throws Exception {
+    // Arrange
+    ProfileUploadBase base = createBase();
+    String maliciousUsername = "../attacker";
+
+    // Act
+    File uploadDir = base.cleanupAndCreateDirectoryForUser(maliciousUsername);
+
+    // Assert
+    // Directory name should be sanitized to 'attacker'
+    File expectedDir = tempHome.resolve("PathTraversal").resolve("attacker").toFile();
+    assertTrue(
+        expectedDir.exists(),
+        "Sanitized username directory should exist under the configured home directory");
+
+    // verify returned directory is inside base
+    assertTrue(
+        uploadDir.toPath().normalize().startsWith(tempHome.toRealPath()),
+        "User directory must not escape the configured home directory");
   }
 }
